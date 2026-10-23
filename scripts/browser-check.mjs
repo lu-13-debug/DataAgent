@@ -1,0 +1,86 @@
+import { createRequire } from 'node:module';
+import { mkdir, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.argv[2] || 'playwright');
+const url = process.env.DATAAGENT_URL || 'http://127.0.0.1:5173';
+await mkdir('artifacts', { recursive: true });
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const page = await browser.newPage({ viewport: { width: 1500, height: 1000 }, deviceScaleFactor: 1 });
+const errors = [];
+page.on('pageerror', error => errors.push(error.message));
+try {
+  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: /让数据，指引下一步/ }).waitFor();
+  await page.screenshot({ path: 'artifacts/workspace-desktop.png', fullPage: true, animations: 'disabled' });
+  const desktopOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(desktopOverflow, false, '桌面页面不应横向溢出');
+  await page.getByRole('button', { name: '新建分析', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('分析名称', { exact: true }).fill('协作模式 · 浏览器验收');
+  await dialog.getByRole('button', { name: /协作模式/ }).click();
+  await dialog.getByRole('button', { name: '开始分析', exact: true }).click();
+  await page.getByRole('button', { name: '确认并继续', exact: true }).waitFor();
+  await page.getByLabel('发送给分析搭档的消息').fill('请重点关注自然新增渠道，这是浏览器验收的业务背景。');
+  await page.getByRole('button', { name: '确认并继续', exact: true }).click();
+  await page.getByText('分析结果已整理，确认后生成报告。', { exact: true }).waitFor();
+  await page.screenshot({ path: 'artifacts/collaboration.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '确认并继续', exact: true }).click();
+  await page.locator('.run-status-card strong').filter({ hasText: '分析完成，报告已就绪' }).waitFor();
+  await page.getByRole('tab', { name: '完整报告', exact: true }).click();
+  await page.getByText('运营摘要', { exact: true }).waitFor();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('link', { name: 'Markdown', exact: true }).click(),
+  ]);
+  assert.match(download.suggestedFilename(), /\.md$/);
+  await page.screenshot({ path: 'artifacts/report-desktop.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '数据源', exact: true }).click();
+  await page.getByRole('heading', { name: '数据源.' }).waitFor();
+  await page.screenshot({ path: 'artifacts/datasets-desktop.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: 'Skill 能力库', exact: true }).click();
+  assert.equal(await page.locator('.skill-card').count(), 8);
+  await page.locator('.skill-card').first().click();
+  await page.getByRole('dialog').waitFor();
+  await page.getByRole('button', { name: '了解了', exact: true }).click();
+  await page.getByRole('button', { name: '模型与 API 设置', exact: true }).click();
+  await page.getByLabel('API 地址', { exact: true }).waitFor();
+  await page.screenshot({ path: 'artifacts/model-settings.png', fullPage: true, animations: 'disabled' });
+  await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  await page.getByRole('button', { name: '分析工作台', exact: true }).click();
+  await page.getByRole('tab', { name: '分析概览', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'AI 工作动态', exact: true }).waitFor();
+  if (await page.locator('.run-panel-open .mobile-panel-close').isVisible()) await page.locator('.mobile-panel-close').click();
+  await page.screenshot({ path: 'artifacts/workspace-mobile.png', fullPage: true, animations: 'disabled' });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, '手机页面不应横向溢出');
+  await page.getByRole('button', { name: 'AI 工作动态', exact: true }).click();
+  await page.screenshot({ path: 'artifacts/agent-mobile.png', fullPage: true, animations: 'disabled' });
+  await page.locator('.mobile-panel-close').click();
+  await page.getByRole('button', { name: '打开导航', exact: true }).click();
+  await page.getByRole('button', { name: '查看使用记录', exact: false }).click();
+  await page.getByRole('heading', { name: '额度与使用记录.' }).waitFor();
+  await page.screenshot({ path: 'artifacts/wallet-mobile.png', fullPage: true, animations: 'disabled' });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, '额度页面不应横向溢出');
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.getByRole('button', { name: '新建分析', exact: true }).first().click();
+  await page.getByRole('dialog').getByLabel('分析名称', { exact: true }).fill('自动模式 · 浏览器验收');
+  await page.getByRole('dialog').getByRole('button', { name: /自动模式/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '开始分析', exact: true }).click();
+  await page.locator('.run-status-card strong').filter({ hasText: '分析完成，报告已就绪' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '确认并继续', exact: true }).count(), 0, '自动模式无需确认');
+  await page.getByRole('button', { name: '数据源', exact: true }).click();
+  await page.locator('input[type=file]').setInputFiles({ name: 'players.csv', mimeType: 'text/csv', buffer: Buffer.from('user_id,registered_at,channel\nqa_player,2026-10-01T10:00:00+08:00,自然新增\n') });
+  await page.locator('.dataset-card').filter({ hasText: 'players' }).waitFor();
+  await page.locator('.dataset-card').filter({ hasText: 'players' }).getByRole('button', { name: /players/ }).first().click();
+  await page.getByRole('dialog').getByText('qa_player', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  assert.deepEqual(errors, [], '页面不应有未捕获错误');
+  console.log('浏览器验收通过：桌面、协作两次确认、消息、报告下载、数据导航、8个Skill、模型设置、手机布局与额度。');
+  await writeFile('artifacts/browser-result.json', JSON.stringify({ passed: true, errors, screenshots: 8 }, null, 2));
+} catch (error) {
+  await page.screenshot({ path: 'artifacts/browser-failure.png', fullPage: true, animations: 'disabled' }).catch(() => {});
+  console.error(error);
+  process.exitCode = 1;
+} finally { await browser.close(); }

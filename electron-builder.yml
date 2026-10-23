@@ -1,0 +1,38 @@
+appId: com.dataagent.desktop
+productName: DataAgent
+copyright: Copyright © 2026 DataAgent
+asar: true
+npmRebuild: false
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - server/**/*.js
+  - '!server/**/*.test.js'
+  - desktop/main.cjs
+  - desktop/runtime.cjs
+  - build/icon.png
+  - package.json
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: DataAgent-Setup-${version}-${arch}.${ext}
+  signExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  packElevateHelper: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DataAgent
+  installerLanguages:
+    - zh_CN
+    - en_US
+  language: 2052
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
