@@ -18,6 +18,8 @@ npm.cmd run cloud
 
 打开日志中的地址（默认 `http://127.0.0.1:3002`），或让桌面客户端连接它。对外服务请部署到有域名与 HTTPS 的服务器，详见 **[云端部署说明](docs/cloud-deployment.md)**。提供 Dockerfile、Compose、Caddy 与持久化/备份配置；当前代码交付不代表已在公网部署账号服务。
 
+首次部署可直接跟随 **[服务器部署与 HTTPS 从零教程](docs/ubuntu-https-guide.md)**：Ubuntu 24.04 → Docker → 域名 A 记录 → `.env` → Caddy 自动证书 → Windows 客户端，附验证命令和排错。
+
 云端密码使用随机盐散列，登录凭据使用 HttpOnly Cookie。API Key 只保留在云端当前登录会话的内存中，退出或服务重启后需重新填写；上传数据和报告保存在所连接的服务器。每次云端模型请求仅向用户指定且管理员已允许的供应商发送业务背景与聚合指标。
 
 ## Windows 桌面版
