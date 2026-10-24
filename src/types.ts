@@ -1,6 +1,8 @@
 export type Mode = 'collaborative' | 'automatic';
 export type View = 'workspace' | 'datasets' | 'reports' | 'skills' | 'wallet';
 export type TaskStatus = 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
+export interface User { id: string; username: string; displayName: string; createdAt: string }
+export interface Runtime { mode: 'local' | 'cloud'; authRequired: boolean; serviceName: 'DataAgent'; version: string; modelHosts?: string[] }
 export interface Wallet { balance: number; frozen: number; spent: number }
 export interface Settings { provider: string; baseUrl: string; model: string; hasKey: boolean }
 export interface Project { id: string; name: string; domain: string; description: string }

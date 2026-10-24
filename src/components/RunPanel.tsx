@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUp, Check, CheckCheck, ChevronDown, ChevronRight, Clock3, Cpu, FileCheck2, GitBranch, MessageSquare, Pause, Play, Sparkles, Square, X } from 'lucide-react';
 import type { Task, Wallet } from '../types';
 import { api } from '../api';
+import { useAuth } from '../auth-context';
 import { Logo, Spinner } from './ui';
 
 export function RunPanel({ task, open, close, onUpdate, onError, onNew }: { task?: Task; open: boolean; close: () => void; onUpdate: (task: Task, wallet?: Wallet) => void; onError: (message: string) => void; onNew: (goal?: string) => void }) {
+  const { runtime } = useAuth();
+  const cloud = runtime.mode === 'cloud';
+  const aiAllowed = !cloud || Boolean(runtime.modelHosts?.length);
   const [tab, setTab] = useState<'activity' | 'chat'>('activity'); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [expanded, setExpanded] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (tab === 'chat') scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [task?.messages.length, tab]);
@@ -32,7 +36,7 @@ export function RunPanel({ task, open, close, onUpdate, onError, onNew }: { task
   const activeStep = task?.steps.find(s => s.status === 'running' || s.status === 'awaiting_approval');
   return <aside className={`run-panel ${open ? 'run-panel-open' : ''}`} aria-label="AI 工作动态">
     <div className="run-panel-heading"><span className="agent-identity"><Logo small /><strong>AI 分析搭档</strong></span><span className={`agent-status ${running ? 'working' : ''}`}><span />{running ? '工作中' : waiting ? '等你确认' : '就绪'}</span><button className="icon-button mobile-panel-close" onClick={close} aria-label="关闭 AI 动态"><X size={17} /></button></div>
-    <div className="agent-intro"><span className="agent-mini-label">一起把问题看得更清楚</span><p>{task?.useAI ? `使用 ${task.model || '已配置模型'} 解读，计算结果由分析引擎提供。` : '本地分析引擎已启用。连接你的模型，让解读更贴近业务。'}</p><span className="agent-mode"><GitBranch size={12} />{task?.mode === 'automatic' ? '自动模式' : '协作模式'}<i />{task?.useAI ? '自带 API Key' : '本地分析'}</span></div>
+    <div className="agent-intro"><span className="agent-mini-label">一起把问题看得更清楚</span><p>{task?.useAI ? `使用 ${task.model || '已配置模型'} 解读，计算结果由分析引擎提供。` : !aiAllowed ? '确定性分析引擎已启用。管理员尚未开放 AI，指标计算和规则解读可正常使用。' : cloud ? '确定性分析引擎已启用。连接你的模型，让解读更贴近业务。' : '本地分析引擎已启用。连接你的模型，让解读更贴近业务。'}</p><span className="agent-mode"><GitBranch size={12} />{task?.mode === 'automatic' ? '自动模式' : '协作模式'}<i />{task?.useAI ? '自带 API Key' : cloud ? '确定性分析' : '本地分析'}</span></div>
     <div className="panel-tabs" role="tablist" aria-label="AI 面板视图"><button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'selected' : ''} onClick={() => setTab('activity')}><Cpu size={14} />执行动态</button><button role="tab" aria-selected={tab === 'chat'} className={tab === 'chat' ? 'selected' : ''} onClick={() => setTab('chat')}><MessageSquare size={14} />协作对话{Boolean(task?.messages.filter(m => m.role === 'user').length) && <span>{task?.messages.filter(m => m.role === 'user').length}</span>}</button></div>
     <div className="run-scroll" ref={scrollRef}>
       {!task ? <div className="agent-empty"><Sparkles size={23} /><p>准备好开始了</p><small>创建一次分析，在这里跟进每一步。</small></div> : tab === 'activity' ? <>

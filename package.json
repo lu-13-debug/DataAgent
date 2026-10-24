@@ -1,6 +1,6 @@
 {
   "name": "dataagent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
@@ -12,7 +12,9 @@
     "dev:server": "node --watch server/index.js",
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.js",
-    "test": "node --test server/*.test.js desktop/*.test.cjs",
+    "cloud": "node server/cloud-index.js",
+    "cloud:dev": "node --watch server/cloud-index.js",
+    "test": "node --test server/*.test.js desktop/*.test.cjs src/*.test.mjs",
     "desktop:dev": "npm run build && electron .",
     "desktop:pack": "npm run build && electron-builder --dir --win --x64 --publish never",
     "desktop:build": "npm run build && electron-builder --win nsis --x64 --publish never"

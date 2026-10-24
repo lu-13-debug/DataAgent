@@ -32,7 +32,7 @@ try {
   await page.getByText('运营摘要', { exact: true }).waitFor();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('link', { name: 'Markdown', exact: true }).click(),
+    page.getByRole('button', { name: '下载 Markdown 报告', exact: true }).click(),
   ]);
   assert.match(download.suggestedFilename(), /\.md$/);
   await page.screenshot({ path: 'artifacts/report-desktop.png', fullPage: true, animations: 'disabled' });

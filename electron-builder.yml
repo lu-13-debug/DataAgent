@@ -10,9 +10,10 @@ files:
   - dist/**/*
   - server/**/*.js
   - '!server/**/*.test.js'
-  - desktop/main.cjs
-  - desktop/runtime.cjs
+  - desktop/**/*
+  - '!desktop/**/*.test.cjs'
   - build/icon.png
+  - build/cloud-config.json
   - package.json
 win:
   icon: build/icon.ico

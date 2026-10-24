@@ -36,9 +36,17 @@ export function createApp(options = {}) {
   const store = new Store(options.dataDir || process.env.DATAAGENT_DATA_DIR || path.join(root, 'data'));
   let key = '';
   let settings = store.config('settings') || { ...DEFAULT_SETTINGS };
-  const publicSettings = () => ({ ...settings, hasKey: Boolean(key) });
+  const getKey = req => options.getKey ? options.getKey(req) || '' : key;
+  const setKey = (req, value) => { if (options.setKey) options.setKey(req, value); else key = value; };
+  const publicSettings = req => ({ ...settings, hasKey: Boolean(getKey(req)) });
   const workflow = new Workflow(store);
+  let activeAsync = 0;
+  const trackAsync = handler => async (req, res) => {
+    if (activeAsync >= (options.maxAsyncRequests ?? Infinity)) throw statusError('当前账号请求过多，请稍后再试', 429);
+    activeAsync++; try { return await handler(req, res); } finally { activeAsync--; }
+  };
   app.locals.store = store;
+  app.locals.isBusy = () => activeAsync > 0 || workflow.running.size > 0 || store.list('task').some(t => ['running', 'awaiting_approval'].includes(t.status));
   app.locals.close = () => { workflow.close(); key = ''; store.close(); };
   function ensureDemo() {
     let dataset = store.list('dataset').find(x => x.source === 'demo');
@@ -56,6 +64,7 @@ export function createApp(options = {}) {
   app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (options.networkGuard === false) return next(); // Authenticated cloud parent owns the network boundary.
     const hostname = req.hostname.toLowerCase();
     if (!['127.0.0.1', 'localhost', '[::1]', '::1'].includes(hostname)) return res.status(403).json({ error: '本地服务仅接受 localhost 访问' });
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
@@ -71,14 +80,18 @@ export function createApp(options = {}) {
     next();
   });
   app.use(express.json({ limit: '128kb' }));
+  app.get('/api/runtime', (_req, res) => res.json({ mode: 'local', authRequired: false, serviceName: 'DataAgent', version: '1.1.0' }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/bootstrap', (_req, res) => res.json({ project: PROJECT, tasks: store.list('task').map(publicTask), datasets: store.list('dataset').map(publicDataset), wallet: store.wallet(), skills: SKILLS, domains: DOMAINS, settings: publicSettings() }));
+  app.get('/api/bootstrap', (req, res) => res.json({ project: { ...PROJECT, ...(options.cloud ? { description: '游戏运营数据分析工作台 · 云端个人工作空间' } : {}) }, tasks: store.list('task').map(publicTask), datasets: store.list('dataset').map(publicDataset), wallet: store.wallet(), skills: SKILLS, domains: DOMAINS, settings: publicSettings(req) }));
+  const checkDatasetLimit = () => { if (store.list('dataset').length >= (options.maxDatasets ?? Infinity)) throw statusError('每个账号最多保存 20 份数据，请先删除不再使用的数据', 429); };
   app.post('/api/datasets/demo', (_req, res) => {
+    checkDatasetLimit();
     const dataset = generateDemo(); store.put('dataset', dataset); res.status(201).json({ dataset: publicDataset(dataset) });
   });
   const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 20 * 1024 * 1024, fields: 2, parts: 5 } });
-  app.post('/api/datasets/upload', upload.array('files', 3), async (req, res) => {
+  app.post('/api/datasets/upload', upload.array('files', 3), trackAsync(async (req, res) => {
     try {
+      checkDatasetLimit();
       const files = req.files?.map(file => {
         // Multipart's default filename charset is Latin-1; browsers commonly send UTF-8 bytes.
         let originalname = file.originalname;
@@ -87,10 +100,10 @@ export function createApp(options = {}) {
         }
         return { ...file, originalname };
       });
-      const dataset = await parseFiles(files); store.put('dataset', dataset); res.status(201).json({ dataset: publicDataset(dataset) });
+      const dataset = await parseFiles(files); checkDatasetLimit(); store.put('dataset', dataset); res.status(201).json({ dataset: publicDataset(dataset) });
     }
-    catch (error) { throw statusError(error.message); }
-  });
+    catch (error) { throw statusError(error.message, error.status || 400); }
+  }));
   app.get('/api/datasets/:id', (req, res) => res.json({ dataset: publicDataset(datasetById(req.params.id)) }));
   app.delete('/api/datasets/:id', (req, res) => {
     const dataset = datasetById(req.params.id);
@@ -104,11 +117,16 @@ export function createApp(options = {}) {
     if (!['collaborative', 'automatic'].includes(input.mode)) throw statusError('请选择协作模式或自动模式');
     if (input.domain !== 'game') throw statusError('当前仅开放游戏运营分析');
     if (typeof input.useAI !== 'boolean') throw statusError('useAI 必须为布尔值');
-    if (input.useAI && !key) throw statusError('尚未设置 API Key；请先配置模型或切换为本地分析');
     const dataset = datasetById(input.datasetId);
+    const requestKey = getKey(req);
+    if (input.useAI) {
+      options.assertModelSettings?.(settings);
+      if (!requestKey) throw statusError('尚未设置 API Key；请先配置模型或切换为本地分析');
+    }
+    if (store.list('task').filter(t => ['running', 'awaiting_approval'].includes(t.status)).length >= (options.maxConcurrentTasks ?? Infinity)) throw statusError('每个账号最多同时运行 2 个任务，请先完成或取消现有任务', 429);
     const task = createTask({ ...input, title, goal }, dataset, settings.model);
     store.createTask(task);
-    if (task.useAI) workflow.captureModel(task.id, { settings, key, fetchImpl: options.fetchImpl || fetch, timeoutMs: options.modelTimeoutMs || 30000 });
+    if (task.useAI) workflow.captureModel(task.id, { settings, key: requestKey, fetchImpl: options.fetchImpl || fetch, timeoutMs: options.modelTimeoutMs || 30000 });
     res.status(201).json(taskWallet(task)); workflow.schedule(task.id);
   });
   app.get('/api/tasks/:id', (req, res) => res.json(taskWallet(taskById(req.params.id))));
@@ -136,39 +154,41 @@ export function createApp(options = {}) {
     res.type('text/markdown; charset=utf-8').send(reportMarkdown(task));
   });
   app.get('/api/wallet', (_req, res) => res.json({ wallet: store.wallet(), transactions: store.transactions() }));
-  app.get('/api/settings', (_req, res) => res.json({ settings: publicSettings() }));
+  app.get('/api/settings', (req, res) => res.json({ settings: publicSettings(req) }));
   app.put('/api/settings', (req, res) => {
     let next;
-    try { next = validateSettings(req.body || {}, settings); } catch (error) { throw statusError(error.message); }
-    let nextKey = key;
+    try { next = validateSettings(req.body || {}, settings); options.assertModelSettings?.(next); } catch (error) { throw statusError(error.message); }
+    let nextKey = getKey(req);
     if (req.body?.clearKey === true) nextKey = '';
     else if (req.body?.apiKey !== undefined) {
       try { nextKey = validateKey(req.body.apiKey); } catch (error) { throw statusError(error.message); }
     }
-    settings = next; key = nextKey;
+    settings = next; setKey(req, nextKey);
     // Persist the allowlisted non-secret settings only. Key always remains in process memory.
     store.config('settings', { provider: settings.provider, baseUrl: settings.baseUrl, model: settings.model });
-    res.json({ settings: publicSettings() });
+    res.json({ settings: publicSettings(req) });
   });
-  app.post('/api/settings/test', async (_req, res) => {
+  app.post('/api/settings/test', trackAsync(async (req, res) => {
+    const requestKey = getKey(req);
     try {
-      await chat({ settings, key, fetchImpl: options.fetchImpl || fetch, timeoutMs: options.modelTimeoutMs || 30000, maxTokens: 8, messages: [{ role: 'user', content: '只回复 OK，用于检查连接。' }] });
+      options.assertModelSettings?.(settings);
+      await chat({ settings, key: requestKey, fetchImpl: options.fetchImpl || fetch, timeoutMs: options.modelTimeoutMs || 30000, maxTokens: 8, messages: [{ role: 'user', content: '只回复 OK，用于检查连接。' }] });
       res.json({ ok: true, message: '模型连接成功。本次进行了真实的小型模型调用，供应商可能计入用量。' });
-    } catch (error) { throw statusError(redact(error.message, key), 400); }
-  });
+    } catch (error) { throw statusError(redact(error.message, requestKey), 400); }
+  }));
   app.use('/api', (_req, res) => res.status(404).json({ error: '接口不存在' }));
   const dist = options.distDir || path.join(root, 'dist');
-  if (existsSync(dist)) {
+  if (options.serveStatic !== false && existsSync(dist)) {
     app.use(express.static(dist, { index: false }));
     app.use((req, res, next) => { if (req.method === 'GET' && req.accepts('html')) res.sendFile(path.join(dist, 'index.html')); else next(); });
   }
-  app.use((error, _req, res, _next) => {
+  app.use((error, req, res, _next) => {
     let status = error.status || (error instanceof multer.MulterError ? 400 : 500);
     let message = error.message || '服务内部错误';
     if (error instanceof multer.MulterError) message = error.code === 'LIMIT_FILE_SIZE' ? '单个文件不能超过 20MB' : '上传受限：最多 3 个文件，总大小 20MB，请检查文件字段 files';
     if (error.type === 'entity.parse.failed') { status = 400; message = 'JSON 请求格式无效'; }
     if (status >= 500) message = '服务处理失败，请检查数据或重试；敏感错误细节已隐藏';
-    res.status(status).json({ error: redact(message, key) });
+    res.status(status).json({ error: redact(message, getKey(req)) });
   });
   return app;
 }

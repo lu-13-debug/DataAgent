@@ -1,0 +1,41 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3002
+      PUBLIC_URL: https://${DATAAGENT_DOMAIN:?请先在.env中填写DATAAGENT_DOMAIN}
+      DATAAGENT_DATA_DIR: /app/data
+      DATAAGENT_MODEL_HOSTS: ${DATAAGENT_MODEL_HOSTS:-}
+      TRUST_PROXY: 1
+    expose:
+      - "3002"
+    volumes:
+      - accounts_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DATAAGENT_DOMAIN: ${DATAAGENT_DOMAIN:?请先在.env中填写DATAAGENT_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  accounts_data:
+  caddy_data:
+  caddy_config:
