@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { analyze } from './analytics.js';
 import { enhanceReport } from './gateway.js';
+import { isModelErrorCode } from './task-errors.js';
 
 const DEFINITIONS = [
   ['quality', '数据质量检查', '检查表结构、日期、订单与金额口径', 'data-quality'],
@@ -29,10 +30,57 @@ export function createTask(input, dataset, model = '') {
     steps: DEFINITIONS.map(([id, name, description, skillId]) => ({ id, name, description, skillId, status: 'pending' })),
     events: [makeEvent('info', '任务已创建', '已冻结 20 试用额度；完成后结算，失败或取消释放。')],
     messages: [makeMessage('system', input.useAI ? '计算在本地完成，仅向配置的模型服务发送聚合指标和业务背景。' : '本任务使用本地确定性分析，不会发起模型调用。')],
+    skippedSteps: [],
     _approved: [],
   };
 }
-export function publicTask(task) { const { _approved, ...safe } = task; return safe; }
+export function publicTask(task) { return Object.fromEntries(Object.entries(task).filter(([field]) => !field.startsWith('_'))); }
+
+const optionalNames = { retention: '用户留存分析', monetization: '商业化分析', insights: '洞察与建议' };
+export function maskSkippedReport(report, task) {
+  const skipped = task.skippedSteps || [];
+  if (!skipped.length) return report;
+  const note = `由用户选择跳过：${skipped.map(id => optionalNames[id]).filter(Boolean).join('、')}；相关结果不参与报告或模型分析，空值表示未执行此分支。`;
+  if (skipped.includes('retention')) {
+    report.metrics = report.metrics.map(metric => ['d1_retention', 'd7_retention'].includes(metric.id) ? { ...metric, value: null, change: null, note: '用户已跳过留存分析；显示无数据。' } : metric);
+    report.retention = []; report.channels = report.channels.map(channel => ({ ...channel, d1: null }));
+    const mentions = value => /留存|D1|D7|retention|cohort/i.test(value);
+    report.findings = report.findings.filter(finding => !mentions(`${finding.title} ${finding.detail} ${finding.evidence}`));
+    report.recommendations = report.recommendations.filter(value => !mentions(value));
+  }
+  if (skipped.includes('monetization')) {
+    report.metrics = report.metrics.map(metric => ['revenue', 'arppu', 'pay_rate', 'arpdau'].includes(metric.id) ? { ...metric, value: null, change: null, note: '用户已跳过商业化分析；显示无数据。' } : metric);
+    report.daily = report.daily.map(day => ({ ...day, revenue: null, payers: null }));
+    report.channels = report.channels.map(channel => ({ ...channel, revenue: null }));
+    const mentions = value => /商业化|收入|支付|付费|ARPP|revenue|payer/i.test(value);
+    report.findings = report.findings.filter(finding => !mentions(`${finding.title} ${finding.detail} ${finding.evidence}`));
+    report.recommendations = report.recommendations.filter(value => !mentions(value));
+  }
+  if (skipped.includes('insights')) { report.findings = []; report.recommendations = []; }
+  const qualityOnly = skipped.includes('monetization') && report.metrics.every(metric => metric.value === null);
+  const qualityOnlyNote = '全部可计算运营分支已跳过，仅保留质量检查。';
+  if (qualityOnly) { report.findings = []; report.recommendations = []; report.retention = []; report.channels = []; }
+  // Provider prose cannot reintroduce unsupported results from a skipped branch.
+  report.summary = `${task.datasetName.includes('演示') ? '本报告使用示例数据，不代表真实业务。' : ''}围绕“${task.goal}”分析 ${report.period} 的 ${report.quality.rows} 行记录。${qualityOnly ? qualityOnlyNote : ''}${note}`;
+  report.methodology = [...report.methodology.filter(value => !value.startsWith('由用户选择跳过：') && value !== qualityOnlyNote), note, ...(qualityOnly ? [qualityOnlyNote] : [])];
+  return report;
+}
+function analyzeForTask(dataset, task) {
+  const options = { title: task.title, goal: task.goal, messages: task.messages };
+  let report = analyze(dataset, options);
+  if (task.skippedSteps?.includes('monetization')) {
+    const original = report;
+    // Exclude payment records before computation, while retaining the original quality audit,
+    // currency and complete-day union. The task still describes the uploaded dataset honestly.
+    // A legitimate payments-only dataset has no operational rows after this exclusion.
+    // Audit its original records, then mask every payment result instead of analyzing an empty input.
+    if (original.daily.some(day => day.dau !== null || day.newUsers !== null)) report = analyze({ ...dataset, records: { ...dataset.records, payments: [] } }, options);
+    report.quality = original.quality; report.currency = original.currency; report.period = original.period;
+    report.daily = original.daily.map(day => ({ ...day, revenue: null, payers: null }));
+    report.metrics = report.metrics.map(metric => ({ ...metric, unit: original.metrics.find(item => item.id === metric.id)?.unit ?? metric.unit }));
+  }
+  return maskSkippedReport(report, task);
+}
 
 function validateReport(report) {
   if (!report || !report.daily.length) throw new Error('报告核验失败：没有完整自然日数据');
@@ -73,6 +121,11 @@ export class Workflow {
         task = this.store.get('task', id);
         if (task.status !== 'running') return;
         const step = task.steps[index];
+        if (task.skippedSteps?.includes(step.id)) {
+          step.status = 'skipped'; step.summary = '由用户选择跳过；相关结果不会纳入报告或模型输入。';
+          task.progress = Math.round((index + 1) * 100 / task.steps.length); task.updatedAt = new Date().toISOString();
+          this.store.put('task', task); continue;
+        }
         if (step.status === 'completed') continue;
         task.currentStep = index;
         const required = { activity: [['activity', '活跃']], retention: [['users', '注册'], ['activity', '活跃']], monetization: [['payments', '支付']] }[step.id];
@@ -94,7 +147,7 @@ export class Workflow {
         await new Promise(resolve => setImmediate(resolve));
         if (this.closed || this.store.get('task', id).status !== 'running') return;
         if (!analysis || ['quality', 'activity', 'retention', 'monetization', 'insights', 'report'].includes(step.id)) {
-          analysis = analyze(dataset, { title: task.title, goal: task.goal, messages: this.store.get('task', id).messages });
+          analysis = analyzeForTask(dataset, this.store.get('task', id));
         }
         let summary;
         switch (step.id) {
@@ -110,13 +163,13 @@ export class Workflow {
               const model = this.modelSnapshots.get(id);
               if (!model?.key) throw new Error('本次任务的模型配置快照不可用，任务已停止，额度将释放。');
               this.lockedModelContexts.add(id);
-              analysis = await enhanceReport(analysis, task, { ...model, signal: controller.signal });
+              analysis = maskSkippedReport(await enhanceReport(analysis, task, { ...model, signal: controller.signal }), task);
             }
             summary = task.useAI ? '模型已基于聚合指标与业务背景生成报告；原始用户数据未发送。' : '已整合本地分析、业务目标、追加背景与方法说明。';
             break;
           }
           case 'verify':
-            if (!task.useAI) analysis = analyze(dataset, { title: task.title, goal: task.goal, messages: this.store.get('task', id).messages });
+            if (!task.useAI) analysis = analyzeForTask(dataset, this.store.get('task', id));
             validateReport(analysis); summary = '报告数值、比例范围、完整日与空值口径核验通过。'; break;
         }
         if (this.closed) return;
@@ -138,6 +191,7 @@ export class Workflow {
       const task = this.store.get('task', id);
       if (!task || ['cancelled', 'completed', 'failed'].includes(task.status)) return;
       task.status = 'failed'; task.error = error.message || '分析失败，额度已释放'; task.updatedAt = new Date().toISOString();
+      if (isModelErrorCode(error.code)) task.errorCode = error.code;
       task.steps[task.currentStep].status = 'failed'; task.events.push(makeEvent('error', '分析失败', task.error, task.steps[task.currentStep].id));
       this.store.finish(task, false);
     } finally {
@@ -160,6 +214,17 @@ export class Workflow {
     for (const step of task.steps) if (step.status !== 'completed') step.status = 'skipped';
     task.events.push(makeEvent('info', '任务已取消', '未完成任务的冻结额度已释放。'));
     this.controllers.get(task.id)?.abort(); this.clearModel(task.id); this.store.finish(task, false); return task;
+  }
+  skip(task, stepId) {
+    if (!Object.hasOwn(optionalNames, stepId)) throw Object.assign(new Error('仅允许跳过 retention、monetization、insights 可选步骤'), { status: 400 });
+    if (!['running', 'awaiting_approval'].includes(task.status)) throw Object.assign(new Error('任务已结束，请通过新恢复尝试选择跳过步骤'), { status: 409 });
+    if (task.skippedSteps?.includes(stepId)) return task;
+    const step = task.steps.find(item => item.id === stepId);
+    if (!step || step.status !== 'pending') throw Object.assign(new Error('步骤已开始或完成，不能改写已执行结果；请创建新尝试'), { status: 409 });
+    task.skippedSteps = [...(task.skippedSteps || []), stepId]; step.status = 'skipped';
+    step.summary = '由用户选择跳过；相关结果不会纳入报告或模型输入。'; task.updatedAt = new Date().toISOString();
+    task.events.push(makeEvent('info', `${step.name}已由用户跳过`, step.summary, step.id));
+    this.store.put('task', task); return task;
   }
   close() { this.closed = true; for (const controller of this.controllers.values()) controller.abort(); this.modelSnapshots.clear(); this.lockedModelContexts.clear(); }
 }

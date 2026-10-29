@@ -1,0 +1,8 @@
+.public-share { max-width: 1060px; margin: auto; padding: 24px; color: #353535; overflow-wrap: anywhere; }
+.public-share header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dce8e0; padding-bottom: 18px; }
+.public-share header strong { font-size: 24px; }.public-share header strong span { color: #848484; }
+.public-share article { padding: 24px 0; }.public-share section { margin: 35px 0; }.share-lead { color: #6d6d6d; }.share-notice { padding: 16px; background: #eef6ef; border-radius: 10px; }
+.share-metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 12px; }.share-metric { padding: 16px; border: 1px solid #dce8e0; border-radius: 10px; min-width: 0; }.share-metric h3 { margin: 0 0 8px; }.share-metric strong { font-size: 24px; }.share-metric p { font-size: 13px; }
+.share-table-wrap { overflow-x: auto; }.public-share table { border-collapse: collapse; width: 100%; }.public-share th,.public-share td { text-align: left; padding: 10px; border-bottom: 1px solid #e3ebe5; white-space: nowrap; }
+.share-manager select,.share-created input { max-width: 100%; }.share-created { margin: 20px 0; display: grid; gap: 10px; }.share-list { padding: 0; list-style: none; }.share-list li { border-top: 1px solid #dce8e0; padding: 12px 0; }.share-check { display: flex; align-items: center; gap: 8px; }.share-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin: 12px 0; }
+@media print { .public-share { max-width: none; padding: 0; }.share-table-wrap { overflow: visible; }.public-share section { break-inside: avoid; } }

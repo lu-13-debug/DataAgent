@@ -83,7 +83,26 @@ npm.cmd run dev
 
 ## 模型与 Key
 
-打开「模型与 API 设置」，填写供应商名称、Chat Completions 兼容接口基础地址、模型名和 Key。保存后，新分析可启用 AI。测试连接会产生一次少量 Token 调用。
+打开「模型与 API 设置」，先填写 API 地址和对应的 Key。输入停顿后自动读取供应商的模型列表，选择模型，再测试连接并保存。仅返回一个模型时自动选中；列表不支持或权限不足时，可以重新检测或手动填写完整模型 ID。检测只读取目录，不发起模型生成；测试连接会产生一次有上限的模型调用。
+
+支持基础地址与完整 Chat Completions 地址，官方 OpenAI / Claude 根地址会补齐 `/v1`。DeepSeek Flash 的连接测试关闭思考模式，避免短测试只返回推理；其他推理模型若只返回推理，会提示“接口已连接，测试未生成最终答案”，正式报告仍要求完整最终文本，不把推理当作报告。更换 API 地址后需要重新填写对应的 Key，防止旧凭据被自动发送到新的接口。
+
+账号服务默认允许以下三家的官方主机。模型名称填写你在对应供应商账户中有权限使用的完整模型 ID，Key 与供应商保持一致：
+
+| 供应商 | API 地址 | 官方文档 |
+| --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com` | [DeepSeek API](https://api-docs.deepseek.com/) |
+| Claude（Anthropic） | `https://api.anthropic.com/v1` | [Chat Completions 兼容接口](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) |
+| OpenAI | `https://api.openai.com/v1` | [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) |
+
+允许的是供应商主机，不限制这些主机下的模型名称；模型是否可用取决于供应商支持和你的 API 账户权限。Claude 兼容接口使用 Anthropic 的 API Key；需要额外工作区请求头的非工作区密钥暂不支持。配置环境变量 `DATAAGENT_MODEL_HOSTS` 会替换默认列表，显式空值会关闭 AI；已有部署如果配置为空，需要改为上述主机列表并重启服务。本机 PowerShell 可执行：
+
+```powershell
+$env:DATAAGENT_MODEL_HOSTS='api.deepseek.com,api.anthropic.com,api.openai.com'
+npm.cmd run cloud
+```
+
+在原服务终端先按 Ctrl+C 停止，再执行以上命令；重新打开客户端即可读取白名单。桌面端加载服务提供的页面，这项服务端更新无需重新安装 EXE。
 
 - 云端 API Key 只保留在当前登录会话的服务端内存，不写入数据库、浏览器存储或日志；退出或重启后需要重新填写。原单用户入口的 Key 保留在本机服务进程内存。
 - 系统向用户指定的供应商发送分析目标、主动提供的业务背景和聚合指标，不发送原始玩家 ID 明细。

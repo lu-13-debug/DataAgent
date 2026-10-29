@@ -1,0 +1,43 @@
+:root, html[data-theme="light"] {
+  color-scheme: light;
+  --surface-0: #ffffff; --surface-1: #ffffff; --surface-2: #f6f6f6; --surface-3: #ededed;
+  --line: #e4e4e4; --line-strong: #cfcfcf;
+  --text-1: #121212; --text-2: #5a5a5a; --text-3: #6e6e6e;
+  --accent: #121212; --accent-hover: #000000; --accent-on: #ffffff; --accent-soft: #f0f0f0;
+  --primary-bg: #000000; --primary-text: #ffffff; --primary-hover: #262626;
+  --success: #4d4d4d; --warning: #6b6b6b; --danger: #a33a33;
+  --success-soft: #efefef; --warning-soft: #f5f5f5; --danger-soft: #faeae8;
+  --shadow-float: 0 8px 24px rgb(0 0 0 / .10);
+  --chart-grid: #e4e4e4; --chart-axis: #cfcfcf; --chart-1: #121212; --chart-2: #666666; --chart-3: #8c8c8c;
+  --scrollbar: #cfcfcf; --selection: #dcdcdc;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #0d0d0d; --surface-1: #151515; --surface-2: #1d1d1d; --surface-3: #262626;
+  --line: #2b2b2b; --line-strong: #3f3f3f;
+  --text-1: #ededed; --text-2: #a3a3a3; --text-3: #8f8f8f;
+  --accent: #ededed; --accent-hover: #ffffff; --accent-on: #0b0b0b;
+  --primary-bg: #ffffff; --primary-text: #000000; --primary-hover: #e5e5e5;
+  --accent-soft: #262626;
+  --success: #b0b0b0; --warning: #c0c0c0; --danger: #e5675f;
+  --success-soft: #1f1f1f;
+  --warning-soft: #1f1f1f;
+  --danger-soft: #2a1c1b;
+  --shadow-float: 0 8px 24px rgb(0 0 0 / .45);
+  --chart-grid: #2b2b2b; --chart-axis: #3f3f3f; --chart-1: #ededed; --chart-2: #8f8f8f; --chart-3: #6b6b6b;
+  --scrollbar: #3f3f3f; --selection: #333333;
+}
+html[data-theme] {
+  --bg: var(--surface-0); --paper: var(--surface-1); --ink: var(--text-1);
+  --muted: var(--text-2); --faint: var(--text-3); --border: var(--line);
+  color: var(--text-1); background: var(--surface-0);
+}
+[data-view="standard"] { --control-h: 32px; --row-h: 36px; --pad-card: 16px; --gap-stack: 16px; --section-gap: 24px; --toolbar-h: 44px; --rail: 224px; --rail-collapsed: 64px; --panel: 320px; }
+[data-view="concise"] { --control-h: 28px; --row-h: 32px; --pad-card: 12px; --gap-stack: 12px; --section-gap: 20px; --toolbar-h: 44px; --rail: 224px; --rail-collapsed: 64px; --panel: 280px; }
+.appearance-controls { display: grid; gap: 16px; }
+.appearance-controls fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.appearance-controls legend { font-weight: 600; margin-bottom: 8px; }
+.appearance-controls p { color: var(--text-2); font-size: var(--text-base); line-height: var(--leading-body); margin-top: 8px; }
+.appearance-segment { display: flex; flex-wrap: wrap; }
+.appearance-segment button { flex: 1; min-height: var(--control-h); }
+@media (pointer: coarse) { .appearance-segment button { min-height: 40px; } }

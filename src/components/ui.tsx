@@ -6,29 +6,33 @@ import type { TaskStatus } from '../types';
 export function Logo({ small = false }: { small?: boolean }) {
   return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><i /><i /><i /><i /></span>;
 }
-export function Modal({ title, subtitle, children, close, wide = false }: { title: string; subtitle?: string; children: ReactNode; close: () => void; wide?: boolean }) {
+export function Modal({ title, subtitle, children, close, wide = false, dismissible = true }: { title: string; subtitle?: string; children: ReactNode; close: () => void; wide?: boolean; dismissible?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const canDismiss = useRef(dismissible); canDismiss.current = dismissible;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const bodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const panel = ref.current;
-    const items = () => [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') || [])];
+    const items = () => [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') || [])].filter(item => item.getClientRects().length > 0);
     items()[0]?.focus();
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape' && canDismiss.current) close();
       if (e.key === 'Tab') {
         const focusable = items(); const first = focusable[0]; const last = focusable.at(-1);
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        if (!focusable.length) { e.preventDefault(); panel?.focus(); }
+        else if (!panel?.contains(document.activeElement) || document.activeElement?.matches(':disabled')) { e.preventDefault(); first?.focus(); }
+        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => { document.body.style.overflow = bodyOverflow; document.removeEventListener('keydown', handleKey); previous?.focus(); };
   }, [close]);
-  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
-    <div ref={ref} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal-header"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" onClick={close} aria-label="关闭弹窗"><X size={19} /></button></div>
+  return <div className="modal-backdrop" onMouseDown={e => { if (dismissible && e.target === e.currentTarget) close(); }}>
+    <div ref={ref} tabIndex={-1} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal-header"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" onClick={close} disabled={!dismissible} aria-label="关闭弹窗"><X size={19} /></button></div>
       {children}
     </div>
   </div>;

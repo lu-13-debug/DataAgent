@@ -31,6 +31,10 @@ test('parser accepts the documented 200000 row boundary without argument stack o
   const csv = 'user_id,event_time\n' + Array.from({ length: 200000 }, (_, i) => `u${i},2026-10-01`).join('\n');
   const dataset = await parser.parseFiles([{ originalname: 'activity.csv', buffer: Buffer.from(csv) }]);
   assert.equal(dataset.rowCount, 200000);
+  assert.equal(dataset.inspection.rawRows, 200000);
+  assert.equal(dataset.inspection.validRows, 200000);
+  assert.deepEqual(dataset.inspection.coverage, [{ table: 'activity', start: '2026-10-01', end: '2026-10-01', validRows: 200000 }]);
+  assert.equal(dataset.tables[0].preview.length, 5);
 });
 
 for (const date1904 of [false, true]) {

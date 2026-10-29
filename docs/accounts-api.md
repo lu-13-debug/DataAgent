@@ -16,7 +16,7 @@ type Runtime = { mode: 'local' | 'cloud'; authRequired: boolean; serviceName: 'D
 
 其余 bootstrap、dataset、task、wallet、settings 接口结构沿用 docs/api-contract.md；服务器从登录态选择工作空间，拒绝其他账号的资源 ID。模型 Key 按会话隔离，非敏感模型配置按账号保存。新账号初始试用额度 500。
 
-生产服务环境变量：`PUBLIC_URL`（HTTPS 根域名）、`PORT`（默认3002）、`HOST`（默认127.0.0.1）、`DATAAGENT_DATA_DIR`、`TRUST_PROXY`（默认关闭，反向代理设1）、`DATAAGENT_MODEL_HOSTS`（逗号分隔精确 HTTPS 主机名，默认空）。本机开发允许环回 HTTP，生产拒绝环回以外的 HTTP 地址。
+生产服务环境变量：`PUBLIC_URL`（HTTPS 根域名）、`PORT`（默认3002）、`HOST`（默认127.0.0.1）、`DATAAGENT_DATA_DIR`、`TRUST_PROXY`（默认关闭，反向代理设1）、`DATAAGENT_MODEL_HOSTS`（逗号分隔精确 HTTPS 主机名，默认 `api.deepseek.com,api.anthropic.com,api.openai.com`；显式空值关闭 AI）。本机开发允许环回 HTTP，生产拒绝环回以外的 HTTP 地址。
 
 入口 `server/cloud-index.js`，创建器 `server/cloud-app.js` 的 `createCloudApp(options={})`，至少支持 dataDir/distDir/publicUrl/production/sessionTtlMs/now/modelHosts/fetchImpl/modelTimeoutMs 供独立测试。app.locals.close() 关闭全部工作流和数据库。
 

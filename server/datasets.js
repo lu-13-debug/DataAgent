@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { parse } from 'csv-parse/sync';
 import ExcelJS from 'exceljs';
-import { SCHEMA, normalizeRecords, dateOf, shiftDate, yesterday } from './analytics.js';
+import { SCHEMA, dateOf, shiftDate, yesterday } from './analytics.js';
+import { inspectDataset, inspectionError, normalizeDatasetRecords } from './inspection.js';
 
 const MAX_ROWS = 200000;
 const aliases = {
@@ -25,23 +26,31 @@ const typesByName = name => {
   if (/user|register|用户|注册|玩家/.test(value)) return 'users';
   return null;
 };
-function tableFromRows(name, matrix) {
+function tableFromRows(name, matrix, source = name, rowNumbers = []) {
   if (!matrix.length) throw new Error(`${name} 是空表`);
   const columns = matrix[0].map(h => aliasMap.get(cleanHeader(h)) || cleanHeader(h));
   if (new Set(columns).size !== columns.length) throw new Error(`${name} 含重复列名或映射后重复的列`);
   const candidates = Object.entries(SCHEMA).filter(([, required]) => required.filter(k => k !== 'channel').every(k => columns.includes(k))).map(([type]) => type);
   const named = typesByName(name);
   const type = named && candidates.includes(named) ? named : candidates.length === 1 ? candidates[0] : null;
-  if (!type) throw new Error(`${name} 无法识别标准表类型。请提供 users(user_id,registered_at,channel)、activity(user_id,event_time) 或 payments(order_id,user_id,paid_at,amount,currency,status)`);
+  if (!type) {
+    const missing = named ? SCHEMA[named].filter(field => field !== 'channel' && !columns.includes(field)) : [];
+    throw inspectionError(`${name} 无法识别标准表类型。请提供 users(user_id,registered_at,channel)、activity(user_id,event_time) 或 payments(order_id,user_id,paid_at,amount,currency,status)`, missing.map(field => ({ code: 'missing_required_field', severity: 'error', problem: `${named} 缺少必填字段 ${field}，无法解析该表。`, metrics: named === 'payments' ? ['revenue', 'arppu', 'payers'] : named === 'users' ? ['new_users', 'd1_retention', 'd7_retention'] : ['dau', 'd1_retention', 'd7_retention'], fix: '补充必填列后重新上传；已有表不能缺少必填字段。', location: { table: named, column: field } })));
+  }
+  const mappings = SCHEMA[type].map(field => ({ table: type, source, field, sourceColumn: columns.includes(field) ? String(matrix[0][columns.indexOf(field)]) : null, origin: columns.includes(field) ? 'automatic' : 'generated', required: field !== 'channel' }));
+  const sourceColumns = Object.fromEntries(mappings.map(mapping => [mapping.field, mapping.sourceColumn]));
   const rows = [];
-  for (const values of matrix.slice(1)) {
+  const locations = [];
+  for (let index = 1; index < matrix.length; index++) {
+    const values = matrix[index];
     if (values.every(v => v === '' || v === null || v === undefined)) continue;
     const row = {};
     for (const key of SCHEMA[type]) { const idx = columns.indexOf(key); row[key] = idx < 0 ? '未标记渠道' : values[idx]; }
     rows.push(row);
+    locations.push({ row: rowNumbers[index] || index + 1, columns: sourceColumns });
   }
   if (!rows.length) throw new Error(`${name} 没有数据行`);
-  return { type, rows };
+  return { type, rows, mappings, locations };
 }
 function excelValue(cell) {
   const value = cell.value;
@@ -57,14 +66,16 @@ function excelValue(cell) {
   }
   return value ?? '';
 }
-export function createDataset(records, { name = '上传数据', source = 'upload', warnings = [], now = new Date() } = {}) {
-  const normalized = normalizeRecords(records, warnings);
+export function createDataset(records, { name = '上传数据', source = 'upload', warnings = [], now = new Date(), evidence } = {}) {
+  const normalized = normalizeDatasetRecords(records, warnings, evidence);
   const all = Object.values(records).flat();
   if (all.length > MAX_ROWS) throw new Error('解析后最多支持 200000 行数据');
   const dates = Object.entries(normalized.records).flatMap(([type, rows]) => rows.map(x => dateOf(x[type === 'users' ? 'registered_at' : type === 'activity' ? 'event_time' : 'paid_at']))).sort();
   if (!dates.length) throw new Error('没有可分析的数据行');
   const tables = Object.entries(normalized.records).map(([type, rows]) => ({ name: type, type, columns: SCHEMA[type], rowCount: rows.length, preview: rows.slice(0, 5) }));
-  return { id: randomUUID(), name, source, createdAt: new Date(now).toISOString(), rowCount: all.length, tableCount: tables.length, tables, warnings: normalized.warnings, dateRange: { start: dates[0], end: dates.at(-1) }, channelCount: new Set((normalized.records.users || []).map(u => u.channel)).size, records: normalized.records };
+  const dataset = { id: randomUUID(), name, source, createdAt: new Date(now).toISOString(), rowCount: all.length, tableCount: tables.length, tables, warnings: normalized.warnings, dateRange: { start: dates[0], end: dates.at(-1) }, channelCount: new Set((normalized.records.users || []).map(u => u.channel)).size, records: normalized.records };
+  dataset.inspection = inspectDataset(dataset, { rawRecords: records, evidence, now });
+  return dataset;
 }
 export function publicDataset(dataset) { const { records, ...safe } = dataset; return safe; }
 
@@ -73,23 +84,37 @@ export async function parseFiles(files) {
   if (files.length > 3) throw new Error('最多上传 3 个文件');
   if (files.reduce((n, f) => n + f.buffer.length, 0) > 20 * 1024 * 1024) throw new Error('文件总大小不能超过 20MB');
   const records = {};
+  const evidence = { mappings: [], rows: {} };
   let rowCount = 0;
   for (const file of files) {
     const name = path.basename(file.originalname).replace(/[\x00-\x1f]/g, '').slice(0, 100);
     const ext = path.extname(name).toLowerCase();
-    const append = (label, matrix) => {
-      const { type, rows } = tableFromRows(label, matrix);
+    const append = (label, matrix, source = name, rowNumbers) => {
+      const { type, rows, mappings, locations } = tableFromRows(label, matrix, source, rowNumbers);
       rowCount += rows.length;
       if (rowCount > MAX_ROWS) throw new Error('解析后最多支持 200000 行数据');
       const target = records[type] ||= [];
       for (const row of rows) target.push(row);
+      evidence.mappings.push(...mappings);
+      const sourceRows = evidence.rows[type] ||= [];
+      for (const location of locations) sourceRows.push(location);
     };
     if (ext === '.csv') {
       const text = new TextDecoder('utf-8', { fatal: true }).decode(file.buffer);
       let matrix;
-      try { matrix = parse(text, { bom: true, skip_empty_lines: true, trim: true, relax_column_count: false, max_record_size: 1024 * 1024 }); }
+      try { matrix = parse(text, { bom: true, skip_empty_lines: true, trim: true, relax_column_count: false, max_record_size: 1024 * 1024, info: true }); }
       catch { throw new Error(`${name} CSV 格式无效，请检查列数、引号并使用 UTF-8 编码`); }
-      append(name, matrix);
+      // Walk physical source bytes once. Parser line counters differ for CRLF inside quotes.
+      const bytes = Buffer.from(text, 'utf8'); let offset = 0; let line = 1;
+      const consume = end => {
+        for (; offset < end; offset++) if (bytes[offset] === 13 || (bytes[offset] === 10 && bytes[offset - 1] !== 13)) line++;
+      };
+      const rowNumbers = matrix.map(row => {
+        let first = offset;
+        while (first < row.info.bytes && [9, 10, 13, 32].includes(bytes[first])) first++;
+        consume(first); const start = line; consume(row.info.bytes); return start;
+      });
+      append(name, matrix.map(row => row.record), name, rowNumbers);
     } else if (ext === '.xlsx') {
       // Inspect ZIP central directory before decompression to reject oversized workbook bombs.
       let totalUncompressed = 0;
@@ -107,12 +132,13 @@ export async function parseFiles(files) {
         if (!sheet.actualRowCount) continue;
         if (sheet.rowCount > MAX_ROWS + 1) throw new Error('解析后最多支持 200000 行数据');
         const matrix = [];
-        sheet.eachRow({ includeEmpty: false }, row => { matrix.push(Array.from({ length: sheet.columnCount }, (_, i) => excelValue(row.getCell(i + 1)))); });
-        append(sheet.name, matrix);
+        const rowNumbers = [];
+        sheet.eachRow({ includeEmpty: false }, row => { matrix.push(Array.from({ length: sheet.columnCount }, (_, i) => excelValue(row.getCell(i + 1)))); rowNumbers.push(row.number); });
+        append(sheet.name, matrix, `${name} / ${sheet.name}`, rowNumbers);
       }
     } else throw new Error('仅支持 CSV 与 XLSX 文件');
   }
-  return createDataset(records, { name: files.length === 1 ? path.basename(files[0].originalname).replace(/\.[^.]+$/, '').slice(0, 100) : `${files.length} 个文件 · 运营数据` });
+  return createDataset(records, { name: files.length === 1 ? path.basename(files[0].originalname).replace(/\.[^.]+$/, '').slice(0, 100) : `${files.length} 个文件 · 运营数据`, evidence });
 }
 
 export function generateDemo(now = new Date()) {

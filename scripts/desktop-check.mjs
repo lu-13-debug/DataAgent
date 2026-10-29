@@ -36,8 +36,6 @@ async function logout() {
 async function newAnalysis(title, mode, datasetId, upload = false) {
   await page.getByRole('button', { name: '新建分析', exact: true }).first().click();
   const modal = page.getByRole('dialog');
-  await modal.getByLabel('分析名称', { exact: true }).fill(title);
-  await modal.getByRole('button', { name: mode === 'collaborative' ? /协作模式/ : /自动模式/ }).click();
   if (upload) {
     const fileNames = ['desktop-exclusive-users.csv', 'desktop-exclusive-activity.csv', 'desktop-exclusive-payments.csv'];
     const rows = [
@@ -53,7 +51,13 @@ async function newAnalysis(title, mode, datasetId, upload = false) {
     await modal.getByLabel('选择分析数据', { exact: true }).locator(`option[value="${uploaded.id}"]`).waitFor({ state: 'attached' });
     await modal.getByLabel('选择分析数据', { exact: true }).selectOption(uploaded.id);
   } else await modal.getByLabel('选择分析数据', { exact: true }).selectOption(datasetId);
-  await modal.getByRole('button', { name: '开始分析', exact: true }).click();
+  await modal.getByRole('checkbox', { name: '我已核对自动识别结果、时间范围和缺表影响', exact: true }).check();
+  await modal.getByRole('button', { name: '下一步', exact: true }).click();
+  await modal.getByLabel('分析名称', { exact: true }).fill(title);
+  await modal.getByRole('button', { name: '下一步', exact: true }).click();
+  await modal.getByRole('button', { name: mode === 'collaborative' ? /协作模式/ : /自动模式/ }).click();
+  await modal.getByRole('button', { name: '下一步', exact: true }).click();
+  await modal.getByRole('button', { name: '确认并开始分析 · 20 额度', exact: true }).click();
 }
 try {
   // Start at the real local connection page; the test supplies the external cloud service by hand.
@@ -75,7 +79,7 @@ try {
   page.setDefaultTimeout(30000);
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: '登录工作台', exact: true }).waitFor();
-  const remoteIsolation = await page.evaluate(() => typeof window.require === 'undefined' && typeof window.process === 'undefined' && typeof window.dataagentConnection === 'undefined');
+  const remoteIsolation = await page.evaluate(() => typeof window.require === 'undefined' && typeof window.process === 'undefined' && typeof window.dataagentConnection === 'undefined' && JSON.stringify(Object.keys(window.dataagentDesktop).sort()) === JSON.stringify(['onNewAnalysis', 'setTaskSummaries', 'setTrayState', 'showWindow', 'setTheme', 'onSystemThemeChanged'].sort()));
   assert.equal(remoteIsolation, true);
   assert.deepEqual(JSON.parse(await readFile(path.join(clientDirectory, 'connection.json'), 'utf8')), { serverUrl: fixture.origin });
   const runtime = await app.evaluate(({ app, BrowserWindow }) => ({ packaged: app.isPackaged, version: app.getVersion(), preferences: BrowserWindow.getAllWindows().find(win => win.webContents.getURL().startsWith('http'))?.webContents.getLastWebPreferences() }));
@@ -84,7 +88,6 @@ try {
   assert.equal(runtime.preferences.contextIsolation, true);
   assert.equal(runtime.preferences.sandbox, true);
   assert.equal(runtime.preferences.webSecurity, true);
-  assert.ok(!runtime.preferences.preload);
   assert.equal(await page.evaluate(async () => (await fetch('/api/bootstrap')).status), 401);
   await register(firstName, '桌面账号一');
   assert.equal((await bootstrap()).wallet.balance, 500);

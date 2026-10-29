@@ -1,0 +1,27 @@
+.report-section { min-width: 0; }
+.report-table-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 12px 0; }
+.report-table-controls label { display: grid; flex: 1 1 220px; gap: 7px; min-width: 0; color: var(--muted); font-size: var(--text-sm); }
+.report-table-controls input { padding: 9px 11px; width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--paper); border-radius: 6px; color: var(--ink); font: inherit; font-size: var(--text-base); }
+.report-channel-details .field-help { font-size: var(--text-base); line-height: var(--leading-body); }
+.report-channel-table { min-width: 540px; }
+.report-channel-table th, .report-channel-table td { font-size: var(--text-base); line-height: var(--leading-body); }
+.report-channel-table th[scope="row"] { font-weight: 500; overflow-wrap: anywhere; }
+.report-table-caption { text-align: left; font-size: var(--text-sm); color: var(--muted); padding: 8px 0; line-height: var(--leading-body); }
+.report-table-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.report-table-pagination > span { margin-right: auto; font-size: var(--text-sm); color: var(--muted); }
+.metric-glossary { margin: 0 0 18px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); font-size: var(--text-base); line-height: var(--leading-body); }
+.metric-glossary summary { cursor: pointer; color: var(--accent); }
+.metric-glossary dl { margin-bottom: 0; }
+.metric-glossary dl > div { padding: 12px 0; border-top: 1px solid var(--border); }
+.metric-glossary dt { font-weight: 600; }
+.metric-glossary dd { margin: 6px 0 0; color: var(--muted); }
+.evidence-text { background: transparent; border: 0; padding: 2px 0; text-align: left; color: var(--muted); font: inherit; font-size: var(--text-sm); line-height: var(--leading-body); overflow-wrap: anywhere; }
+.evidence-text mark { background: #fff0b3; color: var(--ink); }
+.evidence-action-label { display: inline-block; margin-left: 8px; color: var(--accent); font-size: var(--text-xs); }
+.metric-comparison-note { font-size: var(--text-sm); line-height: 1.75; color: var(--muted); }
+.metric-bottom { flex-wrap: wrap; }
+.original-usage-note { font-size: var(--text-base); line-height: var(--leading-body); color: var(--muted); }
+@media print { .report-channel-table { min-width: 0; width: 100%; } .report-channel-table th, .report-channel-table td { font-size: 9pt; overflow-wrap: anywhere; } .metric-glossary:not([open]) > * { display: block; } .evidence-action-label { display: none; } }
+@media print {
+  .metric-glossary::details-content { content-visibility: visible !important; }
+}

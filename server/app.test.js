@@ -197,7 +197,7 @@ test('successful model enhancement keeps deterministic metrics and reports real 
   const tested = await api('/api/settings/test', 'POST', {});
   assert.equal(tested.ok, true);
   assert.match(tested.message, /可能计入用量/);
-  assert.equal(requests[0].body.max_tokens, 8);
+  assert.equal(requests[0].body.max_tokens, 1024);
   const b = await api('/api/bootstrap');
   const created = await api('/api/tasks', 'POST', newTask(b.datasets[0].id, 'automatic', { useAI: true }));
   const done = await waitFor(api, created.task.id, 'completed');
@@ -211,6 +211,74 @@ test('successful model enhancement keeps deterministic metrics and reports real 
 });
 
 const aiResponse = () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ summary: '固定聚合分析', findings: [{ title: '观察', detail: '需验证', severity: 'neutral', evidence: '聚合指标' }], recommendations: ['补充背景后重新分析'] }) } }] }), { status: 200 });
+
+test('task creation checks actual records before freezing even when inspection claims analyzable', async t => {
+  const { api, app } = await setup(t);
+  const dataset = app.locals.store.list('dataset')[0];
+  dataset.records = { activity: [{ user_id: 'private-player', event_time: '2099-01-01' }] };
+  dataset.inspection = { analyzable: true };
+  app.locals.store.put('dataset', dataset);
+  const before = await api('/api/wallet');
+  const result = await api('/api/tasks', 'POST', newTask(dataset.id));
+  assert.equal(result.status, 400);
+  assert.match(result.error, /完整自然日/);
+  assert.equal(result.issues?.some(issue => issue.code === 'not_analyzable'), true);
+  const after = await api('/api/wallet');
+  assert.deepEqual(after, before, '拒绝创建时不能先冻结再释放');
+  assert.equal(JSON.stringify(result).includes('private-player'), false);
+});
+
+test('legacy dataset without inspection remains readable and supports an old task client', async t => {
+  const { api, app } = await setup(t);
+  const dataset = app.locals.store.list('dataset')[0];
+  delete dataset.inspection;
+  app.locals.store.put('dataset', dataset);
+  const read = await api(`/api/datasets/${dataset.id}`);
+  assert.equal(read.status, 200);
+  assert.equal(Object.hasOwn(read.dataset, 'inspection'), false);
+  assert.equal(Object.hasOwn(read.dataset, 'records'), false);
+  const created = await api('/api/tasks', 'POST', newTask(dataset.id));
+  assert.equal(created.status, 201);
+  await waitFor(api, created.task.id, 'completed');
+});
+
+test('upload errors retain string error and structured issues without leaking duplicate IDs or API keys', async t => {
+  const { api } = await setup(t);
+  await api('/api/settings', 'PUT', { baseUrl: 'https://example.test/v1', model: 'x', apiKey: 'private-player-key' });
+  const form = new FormData();
+  form.append('files', new Blob(['order_id,user_id,paid_at,amount,currency,status\nprivate-order,private-player-key,2026-10-01,1,CNY,paid\nprivate-order,private-player-key,2026-10-01,2,CNY,paid\n']), 'payments.csv');
+  const result = await api('/api/datasets/upload', 'POST', form);
+  assert.equal(result.status, 400);
+  assert.match(result.error, /重复订单.*冲突/);
+  assert.equal(result.issues?.[0]?.code, 'conflicting_orders');
+  assert.equal(JSON.stringify(result).includes('private'), false);
+});
+
+test('redacting structured errors preserves the issue property names when a key matches one', async t => {
+  const { api } = await setup(t);
+  await api('/api/settings', 'PUT', { baseUrl: 'https://example.test/v1', model: 'x', apiKey: 'problem' });
+  const form = new FormData();
+  form.append('files', new Blob(['user_id,registered_at\nplayer,invalid\n']), 'users.csv');
+  const result = await api('/api/datasets/upload', 'POST', form);
+  assert.equal(result.status, 400);
+  assert.equal(typeof result.issues?.[0]?.problem, 'string');
+});
+
+test('connection testing gives reasoning models enough budget and explains reasoning-only success', async t => {
+  const requests = [];
+  const { api } = await setup(t, { fetchImpl: async (_url, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    return Response.json({ choices: [{ finish_reason: 'length', message: { content: null, reasoning_content: 'private reasoning' } }] });
+  } });
+  await api('/api/settings', 'PUT', { baseUrl: 'https://api.deepseek.com', model: 'reasoning-model', apiKey: 'probe-key' });
+  const result = await api('/api/settings/test', 'POST', {});
+  assert.equal(result.status, 200, result.error);
+  assert.equal(result.ok, true);
+  assert.match(result.message, /推理/);
+  assert.equal(result.message.includes('private reasoning'), false);
+  assert.equal(requests.length, 1, '不通过自动重试产生额外调用');
+  assert.ok(requests[0].max_tokens >= 512 && requests[0].max_tokens <= 4096);
+});
 
 test('message during an in-flight model request is explicitly refused and not persisted', async t => {
   let release;

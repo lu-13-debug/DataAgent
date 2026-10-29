@@ -1,0 +1,19 @@
+.command-search { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; color: var(--muted); }
+.command-search input { width: 100%; min-width: 0; border: 0; background: transparent; padding: 10px 0; color: var(--ink); font: inherit; font-size: var(--text-base); outline-offset: 4px; }
+.command-results-label { font-size: var(--text-sm); color: var(--muted); line-height: var(--leading-body); margin: 12px 0; }
+.command-results { max-height: min(48vh, 410px); overflow-y: auto; overscroll-behavior: contain; }
+.command-option { display: flex; align-items: center; gap: 12px; padding: 12px 10px; min-height: 56px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.command-option.selected { background: var(--accent-soft); border-color: var(--accent); }
+.command-option-group { font-size: var(--text-xs); color: var(--muted); flex: 0 0 38px; }
+.command-option-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.command-option-copy strong { display: block; font-size: var(--text-base); font-weight: 600; line-height: var(--leading-body); }
+.command-option-copy small { display: block; font-size: var(--text-xs); color: var(--muted); line-height: 1.75; }
+.command-footer { flex-wrap: wrap; gap: 12px; font-size: var(--text-sm); line-height: var(--leading-body); color: var(--muted); }
+.command-empty { padding: 20px 10px; color: var(--muted); font-size: var(--text-base); line-height: var(--leading-body); }
+.shortcut-list { margin: 0; }
+.shortcut-list > div { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: var(--text-base); line-height: var(--leading-body); }
+.shortcut-list dd { margin: 0; color: var(--muted); }
+.shortcut-list kbd, .command-footer kbd { font: inherit; font-size: var(--text-sm); }
+.command-trigger { flex-shrink: 0; }
+@media (max-width: 600px) { .command-palette { padding: 18px; } .command-option { gap: 8px; padding: 10px 6px; } .shortcut-list > div { grid-template-columns: 1fr; gap: 6px; } }
+@media print { .command-trigger { display: none; } }

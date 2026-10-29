@@ -88,12 +88,12 @@ nano .env
 
 ```dotenv
 DATAAGENT_DOMAIN=analysis.example.com
-DATAAGENT_MODEL_HOSTS=api.deepseek.com
+DATAAGENT_MODEL_HOSTS=api.deepseek.com,api.anthropic.com,api.openai.com
 ```
 
-域名不加协议、端口或路径。模型白名单只填你采用的供应商真实 HTTPS 主机，多个用英文逗号分隔，不填 URL 或通配符。上面主机是示例，供应商基础地址以其 [官方文档](https://api-docs.deepseek.com/) 为准。
+域名不加协议、端口或路径。模型白名单默认开放 DeepSeek、Claude（Anthropic）、OpenAI 三家的官方 HTTPS 主机；配置此变量会覆盖默认列表，多个用英文逗号分隔，不填 URL 或通配符。供应商基础地址和填写方法见 [模型与 Key](../README.md#模型与-key)。
 
-只验证注册和确定性分析时，可以保留 `DATAAGENT_MODEL_HOSTS=`；这时 AI 功能尚未开放。**用户 Key 在登录后的软件设置中填写，不写进 `.env`。** 在 nano 按 Ctrl+O、回车保存，Ctrl+X 退出。
+只验证注册和确定性分析时，可以显式设置 `DATAAGENT_MODEL_HOSTS=` 关闭 AI。**用户 Key 在登录后的软件设置中填写，不写进 `.env`。** 在 nano 按 Ctrl+O、回车保存，Ctrl+X 退出。
 
 Compose 会同时给 Caddy 和应用设置该域名，并自动生成 `PUBLIC_URL=https://你的域名`。
 

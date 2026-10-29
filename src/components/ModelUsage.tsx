@@ -1,0 +1,12 @@
+import { useState } from 'react';
+import { useAuth } from '../auth-context';
+import { estimateModelCost } from '../model-cost';
+import type { Report } from '../types';
+import { number } from './ui';
+export function ModelUsage({ report }: { report: Report }) {
+  const { runtime, user } = useAuth(); const usage = report.aiUsage;
+  const [input, setInput] = useState(''); const [output, setOutput] = useState(''); const [currency, setCurrency] = useState('CNY');
+  const estimate = usage && input.trim() && output.trim() ? estimateModelCost(usage, { input: Number(input), output: Number(output) }) : null;
+  if (report.source !== 'ai') return <section className="model-usage" aria-label="本次模型用量"><h3>模型用量与费用</h3><p>本次仅使用确定性分析，未调用模型。平台服务额度与模型 API 费用独立。</p></section>;
+  return <section className="model-usage" aria-label="本次模型用量"><h3>模型用量与估算费用</h3>{usage ? <><p>{usage.provider} · {usage.model} · 供应商返回的用量</p><dl className="usage-counters"><div><dt>输入 Token</dt><dd>{usage.inputTokens == null ? '未返回' : number(usage.inputTokens)}</dd></div><div><dt>输出 Token</dt><dd>{usage.outputTokens == null ? '未返回' : number(usage.outputTokens)}</dd></div><div><dt>总 Token</dt><dd>{usage.totalTokens == null ? '供应商未返回合计' : number(usage.totalTokens)}</dd></div>{usage.cacheReadInputTokens != null && <div><dt>缓存读取</dt><dd>{number(usage.cacheReadInputTokens)}</dd></div>}{usage.cacheCreationInputTokens != null && <div><dt>缓存写入</dt><dd>{number(usage.cacheCreationInputTokens)}</dd></div>}{usage.reasoningTokens != null && <div><dt>推理 Token</dt><dd>{number(usage.reasoningTokens)}</dd></div>}</dl><details className="cost-estimation"><summary>按你提供的单价估算模型费用</summary><p>不自动查询或猜测供应商价格。请输入每百万 Token 的参考单价；估算不含分层价格、缓存差价、工具调用和税费，以供应商账单为准。</p><div className="form-row"><label className="field">输入参考单价<input type="number" min="0" step="any" value={input} onChange={event => setInput(event.target.value)} /></label><label className="field">输出参考单价<input type="number" min="0" step="any" value={output} onChange={event => setOutput(event.target.value)} /></label><label className="field">计价币种<select value={currency} onChange={event => setCurrency(event.target.value)}><option value="CNY">CNY</option><option value="USD">USD</option></select></label></div><p role="status">{estimate == null ? '未提供有效单价或供应商未返回完整用量，无法估算。' : `估算模型费用：${currency} ${estimate.toFixed(6)}。仅按上述参考单价计算，不代表实际扣费。`}</p></details></> : <p>供应商未返回用量，无法估算本次模型费用。</p>}<p>服务额度与模型 API 费用相互独立。该报告属于{runtime.mode === 'cloud' ? `当前账号${user?.displayName ? '（' + user.displayName + '）' : ''}` : '本地工作空间'}。</p></section>;
+}

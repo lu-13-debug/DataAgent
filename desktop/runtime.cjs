@@ -26,6 +26,14 @@ function normalizeServerUrl(value) {
   }
   return url.origin;
 }
+function buildSupportDiagnostic({ version, origin, logs }) {
+  let serverOrigin = '未连接';
+  try {
+    const normalized = normalizeServerUrl(origin);
+    if (normalized === origin) serverOrigin = normalized;
+  } catch { /* 未连接或无效地址不进入诊断信息 */ }
+  return JSON.stringify({ version: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(version) ? version : 'unknown', serverOrigin, logDirectory: logs }, null, 2);
+}
 function resolveServerUrl({ environmentUrl, savedUrl, bundledUrl } = {}) {
   for (const value of [environmentUrl, savedUrl, bundledUrl]) {
     if (value !== undefined && value !== null && value !== '') return normalizeServerUrl(value);
@@ -61,4 +69,4 @@ async function saveCloudConnection(file, value, fetchImpl = fetch) {
   await rename(temporary, file);
   return serverUrl;
 }
-module.exports = { desktopPaths, allowedNavigation, safeExternalUrl, normalizeServerUrl, resolveServerUrl, loadServerUrl, isConnectionSender, probeCloudServer, saveCloudConnection };
+module.exports = { desktopPaths, allowedNavigation, safeExternalUrl, normalizeServerUrl, buildSupportDiagnostic, resolveServerUrl, loadServerUrl, isConnectionSender, probeCloudServer, saveCloudConnection };

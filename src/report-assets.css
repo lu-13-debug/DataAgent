@@ -1,0 +1,58 @@
+.report-filters { padding: 18px; margin-bottom: 14px; }
+.report-filter-row { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
+.report-filter-row .search-field { flex: 2 1 230px; min-width: 0; }
+.report-select { display: flex; flex: 1 1 145px; flex-direction: column; gap: 7px; min-width: 0; font-size: var(--text-sm); color: var(--muted); }
+.report-select select, .report-select input { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; font-size: var(--text-base); }
+.report-advanced-filters { margin-top: 16px; font-size: var(--text-base); line-height: var(--leading-body); }
+.report-advanced-filters summary { cursor: pointer; color: var(--accent); }
+.report-advanced-filters .report-filter-row { margin-top: 12px; }
+.report-check { display: flex; align-items: center; gap: 7px; min-height: 38px; font-size: var(--text-base); }
+.report-check input, .report-compare-check input { accent-color: var(--accent); }
+.report-filter-summary, .report-asset-note { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-body); }
+.report-filter-summary { margin-top: 14px; }
+.report-asset-note { margin: 14px 0; }
+.report-comparison-bar { padding: 12px; margin-bottom: 16px; background: var(--accent-soft); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.report-comparison-bar > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.report-comparison-bar > div > button { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; text-align: left; overflow-wrap: anywhere; border: 1px solid var(--border); background: var(--paper); border-radius: 5px; padding: 7px 10px; font-size: var(--text-sm); }
+.managed-report { align-items: flex-start; }
+.managed-report .report-list-main { min-width: 0; }
+.managed-report .report-list-main > div:first-child { flex-wrap: wrap; }
+.managed-report .report-list-main > div:first-child > button { overflow-wrap: anywhere; white-space: normal; text-align: left; }
+.managed-report .report-list-main > p { -webkit-line-clamp: 2; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; white-space: normal; }
+.report-list-leading { flex-shrink: 0; display: grid; gap: 12px; justify-items: center; }
+.report-compare-check { display: flex; gap: 5px; align-items: center; font-size: var(--text-xs); color: var(--muted); }
+.report-management-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; }
+.report-management-actions > button { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 4px 0; background: transparent; font-size: var(--text-sm); color: var(--muted); }
+.report-management-actions > button.selected, .pinned-label { color: var(--accent); }
+.report-management-actions > button.selected svg { fill: var(--accent-soft); }
+.report-pinned { border-left: 3px solid var(--accent); }
+.pinned-label { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); }
+.report-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.report-tags > span, .report-tags > button { padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-size: var(--text-xs); line-height: 1.75; overflow-wrap: anywhere; }
+.comparison-sources { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+.comparison-sources > div { padding: 14px; border: 1px solid var(--border); border-radius: 6px; overflow-wrap: anywhere; }
+.comparison-sources span, .comparison-row > div > span { display: block; color: var(--muted); font-size: var(--text-xs); margin-bottom: 6px; }
+.comparison-sources strong { font-size: var(--text-base); }
+.comparison-sources p, .comparison-warning p, .comparison-warning li { font-size: var(--text-base); line-height: var(--leading-body); }
+.comparison-warning { padding: 14px; border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: 6px; margin-bottom: 18px; }
+.comparison-warning h3, .comparison-row h3 { font-size: var(--text-base); }
+.comparison-rows { display: grid; gap: 10px; }
+.comparison-row { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); align-items: center; }
+.comparison-row h3 { margin: 0; }
+.comparison-row > div { min-width: 0; overflow-wrap: anywhere; }
+.comparison-row strong { font-size: var(--text-base); }
+.comparison-row > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: var(--leading-body); }
+.report-lineage { margin: 0 0 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.report-lineage > div { min-width: 0; }
+.report-lineage strong { display: inline-flex; gap: 6px; align-items: center; font-size: var(--text-sm); }
+.report-lineage ol { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 8px 0 0; }
+.report-lineage li { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.report-lineage li > button { white-space: normal; text-align: left; }
+.continuation-source, .inherited-context { border: 1px solid var(--border); border-radius: 7px; padding: 14px; margin: 12px 0 18px; background: var(--accent-soft); font-size: var(--text-base); line-height: var(--leading-body); overflow-wrap: anywhere; }
+.continuation-source p, .inherited-context p { margin: 8px 0 0; }
+.inherited-context summary { cursor: pointer; margin-top: 12px; color: var(--accent); }
+.inherited-context li { white-space: pre-wrap; }
+@media (max-width: 800px) { .managed-report { flex-wrap: wrap; } .managed-report .report-list-actions { width: 100%; justify-content: flex-end; } .managed-report .report-list-main { flex: 1; min-width: 180px; } }
+@media (max-width: 600px) { .report-filters { padding: 14px; } .comparison-sources { grid-template-columns: 1fr; } .comparison-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .comparison-row h3 { grid-column: 1 / -1; } .report-list-leading .report-list-icon { width: 36px; height: 36px; } }
+@media print { .report-filters, .report-management-actions, .report-comparison-bar, .report-compare-check { display: none; } }
+.report-advanced-filters .field-help { font-size: var(--text-base); line-height: var(--leading-body); }

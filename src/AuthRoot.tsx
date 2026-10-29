@@ -4,10 +4,12 @@ import { ArrowRight, Database, LockKeyhole, RefreshCw, ShieldCheck } from 'lucid
 import { api, onSessionExpired, resetSessionBoundary } from './api';
 import { registrationError } from './account-validation';
 import { AuthContext } from './auth-context';
+import { setDesktopState } from './desktop-tray';
+import { AppearanceProvider } from './appearance-context';
 import type { Runtime, User } from './types';
 import { Logo, Spinner } from './components/ui';
 
-export function AuthRoot({ children }: { children: ReactNode }) {
+export function AuthRoot({ children, attribution }: { children: ReactNode; attribution?: { shareToken: string; visitorToken: string } }) {
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +19,7 @@ export function AuthRoot({ children }: { children: ReactNode }) {
   const [session, setSession] = useState(0);
   const endSession = useCallback((message: string) => {
     resetSessionBoundary();
+    setDesktopState(window.dataagentDesktop, 'login');
     setUser(null);
     setNotice(message);
     setSession(value => value + 1);
@@ -46,23 +49,28 @@ export function AuthRoot({ children }: { children: ReactNode }) {
     return () => { alive = false; };
   }, [attempt]);
 
+  useEffect(() => {
+    if (!loading && runtime?.mode === 'cloud' && !user) setDesktopState(window.dataagentDesktop, 'login');
+  }, [loading, runtime, user]);
+
   if (loading || error || !runtime) return <div className="app-loading" aria-busy={loading}>
     <div className="loading-brand"><Logo /><strong>DataAgent.</strong></div>
     {error ? <><h2>连接分析服务时遇到问题</h2><p role="alert">{error}</p><button className="button primary" onClick={() => setAttempt(value => value + 1)}><RefreshCw size={15} />重试连接</button><small>请检查网络和所连接的服务地址；服务管理员可检查部署状态。</small></> : <><Spinner size={24} /><p role="status">正在连接你的分析服务…</p></>}
   </div>;
 
-  if (runtime.mode === 'cloud' && !user) return <AuthPage notice={notice} onAuthenticated={next => {
+  if (runtime.mode === 'cloud' && !user) return <AuthPage notice={notice} attribution={attribution} onAuthenticated={next => {
     resetSessionBoundary();
+    if (attribution) window.history.replaceState(null, '', '/');
     setNotice('');
     setUser(next);
     setSession(value => value + 1);
   }} />;
 
-  return <AuthContext.Provider key={session} value={{ runtime, user, endSession }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider key={session} value={{ runtime, user, endSession }}><AppearanceProvider userId={user?.id}>{children}</AppearanceProvider></AuthContext.Provider>;
 }
 
-function AuthPage({ notice, onAuthenticated }: { notice: string; onAuthenticated: (user: User) => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+function AuthPage({ notice, onAuthenticated, attribution }: { notice: string; onAuthenticated: (user: User) => void; attribution?: { shareToken: string; visitorToken: string } }) {
+  const [mode, setMode] = useState<'login' | 'register'>(attribution ? 'register' : 'login');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -83,7 +91,7 @@ function AuthPage({ notice, onAuthenticated }: { notice: string; onAuthenticated
     setBusy(true);
     setError('');
     try {
-      const result = register ? await api.register({ username, displayName: displayName.trim(), password }) : await api.login({ username, password });
+      const result = register ? await api.register({ username, displayName: displayName.trim(), password, ...(attribution || {}) }) : await api.login({ username, password });
       setPassword('');
       setConfirmPassword('');
       onAuthenticated(result.user);

@@ -8,7 +8,7 @@ services:
       PORT: 3002
       PUBLIC_URL: https://${DATAAGENT_DOMAIN:?请先在.env中填写DATAAGENT_DOMAIN}
       DATAAGENT_DATA_DIR: /app/data
-      DATAAGENT_MODEL_HOSTS: ${DATAAGENT_MODEL_HOSTS:-}
+      DATAAGENT_MODEL_HOSTS: ${DATAAGENT_MODEL_HOSTS-api.deepseek.com,api.anthropic.com,api.openai.com}
       TRUST_PROXY: 1
     expose:
       - "3002"

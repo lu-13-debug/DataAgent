@@ -82,3 +82,19 @@ test('报告下载读取 Markdown，且下载的 401 也触发会话失效', asy
     assert.equal(expired, 1);
   } finally { unsubscribe(); globalThis.fetch = previous; }
 });
+test('task mutations have bounded requests and timeout never claims cancellation or retries a charge', async t => {
+  const previous = globalThis.fetch; let calls = 0;
+  t.mock.method(AbortSignal, 'timeout', duration => {
+    assert.ok(duration > 0 && duration <= 30000);
+    return AbortSignal.abort(new DOMException('Controlled timeout', 'TimeoutError'));
+  });
+  try {
+    globalThis.fetch = async (_url, options) => {
+      calls++; assert.ok(options.signal instanceof AbortSignal, '收费操作也必须有超时信号');
+      options.signal.throwIfAborted();
+      return new Response('{}');
+    };
+    await assert.rejects(api.retry('task-a', { strategy: 'resume', useAI: false, clientRequestId: 'stable-retry' }), /超时.*可能已处理/);
+    assert.equal(calls, 1, '不自动重试收费请求');
+  } finally { globalThis.fetch = previous; }
+});

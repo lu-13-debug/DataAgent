@@ -28,7 +28,7 @@ cd DataAgent
 cp .env.example .env
 ```
 
-修改 `.env` 中的 `DATAAGENT_DOMAIN` 为实际域名，例如 `analysis.your-domain.com`。需要 AI 功能时，将你信任的供应商主机名填入 `DATAAGENT_MODEL_HOSTS`，逗号分隔；只填主机名，不含协议、路径、端口或通配符。API Key 由各用户在登录后填写，不写进这个文件。
+修改 `.env` 中的 `DATAAGENT_DOMAIN` 为实际域名，例如 `analysis.your-domain.com`。`DATAAGENT_MODEL_HOSTS` 默认包含 `api.deepseek.com,api.anthropic.com,api.openai.com`，开放三家的官方兼容接口。填写其他主机列表会覆盖默认值，只填精确主机名，英文逗号分隔，不含协议、路径、端口或通配符；显式设置为空可关闭 AI。API Key 由各用户在登录后填写，不写进这个文件。
 
 ```bash
 docker compose up -d --build
@@ -89,3 +89,9 @@ docker compose up -d --build
 不要使用 `docker compose down -v` 更新服务，因为 `-v` 会删除持久化卷。首次运营时先小范围验证账号、跨账号访问、备份恢复和模型白名单，再扩大用户数量。
 
 参考：[Docker Node.js 指南](https://docs.docker.com/guides/nodejs/)、[Caddy HTTPS](https://caddyserver.com/docs/quick-starts/https)、[OWASP 密码存储](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)、[OWASP 会话管理](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)。
+
+## 只读分享与日志配置
+
+云端服务支持为已完成报告生成有限期、可撤销的只读快照。链接中的令牌位于 `#` 片段；公开读取通过同源 POST 请求体传递令牌。请确保 Caddy、反向代理、APM、错误监控及调试中间件不记录请求体、分享令牌或完整带片段的浏览器地址；分享与公开 API 响应使用 `no-store` 和 `no-referrer`。不要添加会捕获请求体的日志插件。
+
+隐藏收入时，公开快照仅保留安全字段，不提供玩家明细或数据下载；它不包含原报告中的自由文本和 AI 叙述。分享数据和去重计数保存在账号数据库中，因此也属于上述备份范围。访问和注册计数基于随机访客标识去重，不代表自然人数量；到期超过 30 天的记录会按服务策略清理。升级前仍需检查正在运行的任务并备份数据，服务重启会清除会话中的模型 Key。

@@ -1,0 +1,29 @@
+.connection-state.disconnected { color: var(--warning); }
+.connection-state.disconnected .online-dot { background: var(--warning); }
+.task-notification-settings { display: grid; gap: 6px; margin-bottom: 14px; font-size: var(--text-xs); color: var(--muted); line-height: 1.75; }
+.task-notification-settings small { font-size: var(--text-xs); }
+.released-credit, .task-source-note { font-size: var(--text-base); line-height: var(--leading-body); padding: 10px; background: var(--accent-soft); border-radius: 6px; overflow-wrap: anywhere; }
+.execution-plan { padding: 14px; margin-bottom: 20px; background: var(--accent-soft); border: 1px solid var(--border); border-radius: 8px; }
+.execution-plan h3, .task-failure-actions h3 { font-size: var(--text-base); margin: 0; }
+.execution-plan p, .task-failure-actions p, .retry-task-form p, .task-action-confirm p { font-size: var(--text-base); line-height: var(--leading-body); }
+.execution-plan ol { padding-left: 18px; margin-bottom: 0; }
+.execution-plan li { font-size: var(--text-sm); line-height: 1.75; margin-top: 12px; }
+.execution-plan li > strong, .execution-plan li > span { display: block; }
+.execution-plan li > strong { font-size: var(--text-base); }
+.execution-plan .plan-limit { color: var(--warning); }
+.execution-plan .text-button { margin-top: 6px; font-size: var(--text-xs); }
+.model-input-preview { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.task-failure-actions { border: 1px solid var(--border); border-left: 3px solid var(--warning); padding: 14px; margin-bottom: 20px; border-radius: 8px; }
+.task-failure-actions > button { margin-top: 10px; width: 100%; justify-content: flex-start; white-space: normal; text-align: left; }
+.optional-branches { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 16px; }
+.optional-branches legend { font-size: var(--text-base); padding: 0 6px; }
+.model-usage { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); font-size: var(--text-base); line-height: var(--leading-body); }
+.model-usage h3 { font-size: var(--text-lg); }
+.model-usage p { font-size: var(--text-base); line-height: var(--leading-body); color: var(--muted); }
+.usage-counters { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+.usage-counters > div { min-width: 100px; }
+.usage-counters dt { color: var(--muted); font-size: var(--text-sm); }
+.usage-counters dd { margin: 4px 0 0; font-size: var(--text-lg); }
+.cost-estimation summary { cursor: pointer; color: var(--accent); }
+.cost-estimation .form-row { display: flex; flex-wrap: wrap; }
+.cost-estimation .field { flex: 1 1 150px; min-width: 0; }

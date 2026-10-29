@@ -1,0 +1,64 @@
+.model-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.model-picker-heading>label {
+  font: inherit;
+  color: inherit;
+}
+.model-picker-heading .text-button {
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.model-catalog-status {
+  min-height: 20px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 1.7;
+  color: #6d6d6d;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.model-catalog-status.catalog-error {
+  color: #a64232;
+}
+.model-picker-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 5px;
+}
+.model-picker-footer .field-help {
+  margin: 0;
+  flex: 1;
+}
+.model-picker-footer .text-button {
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.field select#model-name {
+  width: 100%;
+  text-overflow: ellipsis;
+}
+@media(max-width:600px) {
+  .model-catalog-status,.model-picker-footer .text-button,.model-picker-heading .text-button {
+    font-size: var(--text-xs);
+  }
+}
+html:has(.modal-backdrop) {
+  overflow-x: clip;
+}
+.provider-presets, .model-profiles { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.provider-presets h3, .model-profiles h3 { font-size: var(--text-base); margin: 0 0 12px; }
+.provider-presets > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.provider-presets p, .model-profiles p, .model-diagnosis p { font-size: var(--text-base); line-height: var(--leading-body); color: var(--muted); margin: 10px 0 0; }
+.profile-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0; font-size: var(--text-base); }
+.profile-row > span { min-width: 0; overflow-wrap: anywhere; }
+.profile-row small { display: block; color: var(--muted); font-size: var(--text-xs); }
+.model-diagnosis { padding: 14px; background: var(--warning-soft); border: 1px solid var(--border); border-radius: 8px; margin: 14px 0; font-size: var(--text-base); }
+.model-profiles summary { font-size: var(--text-sm); color: var(--accent); cursor: pointer; }

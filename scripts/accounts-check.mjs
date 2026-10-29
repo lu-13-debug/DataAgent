@@ -13,9 +13,10 @@ const app = createCloudApp({
   dataDir: path.join(directory, 'server-data'), distDir: path.resolve('dist'), production: false,
   modelHosts: ['model.example.test'],
   fetchImpl: async (url, init) => {
+    if (init.method === 'GET') return Response.json({ data: [{ id: 'account-integration-test' }] });
     const body = JSON.parse(init.body);
     calls.push({ url, body });
-    const content = body.max_tokens === 8 ? 'OK' : JSON.stringify({ summary: '根据用户上传数据的聚合指标完成分析。请结合渠道投放背景验证留存与收入变化。', findings: [{ title: '核对真实上传数据', detail: '报告保留代码计算的收入与留存指标。', severity: 'neutral', evidence: '以服务端聚合指标为准。' }], recommendations: ['结合自然渠道的业务背景开展后续验证。'] });
+    const content = body.max_tokens === 1024 ? 'OK' : JSON.stringify({ summary: '根据用户上传数据的聚合指标完成分析。请结合渠道投放背景验证留存与收入变化。', findings: [{ title: '核对真实上传数据', detail: '报告保留代码计算的收入与留存指标。', severity: 'neutral', evidence: '以服务端聚合指标为准。' }], recommendations: ['结合自然渠道的业务背景开展后续验证。'] });
     return Response.json({ choices: [{ message: { content } }] });
   },
 });
@@ -50,8 +51,8 @@ try {
   await a.getByRole('button', { name: '模型与 API 设置', exact: true }).click();
   await a.getByLabel('供应商名称', { exact: true }).fill('验收模拟供应商');
   await a.getByLabel('API 地址', { exact: true }).fill('https://model.example.test/v1');
-  await a.getByLabel('模型名称', { exact: true }).fill('account-integration-test');
   await a.getByLabel('API Key', { exact: true }).fill('qa-only-not-a-real-provider-key');
+  await a.getByRole('combobox', { name: '模型名称', exact: true }).selectOption('account-integration-test');
   await a.getByRole('button', { name: '测试连接', exact: true }).click();
   await a.locator('.form-success').waitFor();
   await a.getByRole('button', { name: '保存设置', exact: true }).click();
@@ -65,13 +66,20 @@ try {
   ]);
   const uploadedHttp = await uploadedResponse; assert.equal(uploadedHttp.status(), 201);
   const uploaded = (await uploadedHttp.json()).dataset;
+  await a.getByRole('heading', { name: '识别结果确认', exact: true }).waitFor();
+  await a.getByRole('dialog').getByRole('button', { name: '关闭弹窗', exact: true }).click();
   await a.getByRole('button', { name: '新建分析', exact: true }).first().click();
   const dialog = a.getByRole('dialog');
-  await dialog.getByLabel('分析名称', { exact: true }).fill('A 的真实数据分析');
   await dialog.getByLabel('选择分析数据', { exact: true }).selectOption(uploaded.id);
-  await dialog.locator('textarea').fill('核对这份真实上传数据的收入、活跃和次日留存。');
+  await dialog.getByRole('checkbox', { name: '我已核对自动识别结果、时间范围和缺表影响', exact: true }).check();
+  await dialog.getByRole('button', { name: '下一步', exact: true }).click();
+  await dialog.getByLabel('分析名称', { exact: true }).fill('A 的真实数据分析');
+  await dialog.getByLabel('分析目标', { exact: true }).fill('核对这份真实上传数据的收入、活跃和次日留存。');
+  await dialog.getByRole('button', { name: '下一步', exact: true }).click();
   await dialog.getByRole('button', { name: /协作模式/ }).click();
-  await dialog.getByRole('button', { name: '开始分析', exact: true }).click();
+  await dialog.locator('.wizard-ai input[type=checkbox]').check();
+  await dialog.getByRole('button', { name: '下一步', exact: true }).click();
+  await dialog.getByRole('button', { name: '确认并开始分析 · 20 额度', exact: true }).click();
   await a.getByRole('button', { name: '确认并继续', exact: true }).waitFor();
   await a.getByLabel('发送给分析搭档的消息').fill('请重点关注自然渠道，这是账号验收的业务背景。');
   await a.getByRole('button', { name: '确认并继续', exact: true }).click();
@@ -86,10 +94,10 @@ try {
   assert.equal(task.report.metrics.find(m => m.id === 'revenue').value, 45);
   assert.equal(task.report.metrics.find(m => m.id === 'd1_retention').value, 100);
   assert.equal(ab.wallet.balance, 480);
-  const [download] = await Promise.all([a.waitForEvent('download'), a.getByRole('button', { name: '下载 Markdown 报告', exact: true }).click()]);
+  const [download] = await Promise.all([a.waitForEvent('download'), a.getByRole('button', { name: '下载原始 Markdown 报告', exact: true }).click()]);
   assert.match(download.suggestedFilename(), /\.md$/);
   await a.screenshot({ path: path.join(directory, 'alice-report.png'), animations: 'disabled', fullPage: true });
-  const modelCall = calls.find(c => c.body.max_tokens !== 8);
+  const modelCall = calls.find(c => c.body.max_tokens !== 1024);
   assert.ok(modelCall); assert.ok(modelCall.body.messages.some(m => m.content.includes('自然渠道')));
   assert.equal(JSON.stringify(modelCall.body).includes('player_a'), false);
   const bc = await browser.newContext({ viewport: { width: 390, height: 844 } });

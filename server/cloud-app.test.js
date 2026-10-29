@@ -38,13 +38,56 @@ async function setup(t, options = {}) {
       if (setCookie) cookie = setCookie.split(';')[0];
       const text = result.text;
       let data; try { data = JSON.parse(text); } catch { data = { text }; }
-      return { ...data, status: result.status, setCookie };
+      return { ...data, status: result.status, setCookie, ...(route.startsWith('/api/public/shares/') ? { headers: result.headers } : {}) };
     };
     return { api, cookie: () => cookie };
   };
   const register = async username => { const c = client(); const r = await c.api('/api/auth/register', 'POST', { username, displayName: `用户${username}`, password }); assert.equal(r.status, 201, r.error); return { ...c, user: r.user }; };
   return { client, register, dir, get app() { return app; }, get base() { return base; }, restart: async () => { await close(); await start(); } };
 }
+
+test('cloud report sharing is scoped, redacted, revocable and counts deduplicated visits and registrations', async t => {
+  let time = Date.now(); const s = await setup(t, { now: () => time });
+  const owner = await s.register('share_owner'); const other = await s.register('share_other'); const anon = s.client();
+  const boot = await owner.api('/api/bootstrap'); const task = boot.tasks.find(x => x.status === 'completed');
+  assert.equal((await anon.api(`/api/tasks/${task.id}/shares`, 'POST', { expiresInDays: 7, hideRevenue: true })).status, 401);
+  assert.equal((await other.api(`/api/tasks/${task.id}/shares`, 'POST', { expiresInDays: 7, hideRevenue: true })).status, 404);
+  assert.equal((await owner.api(`/api/tasks/${task.id}/shares`, 'POST', { expiresInDays: 5, hideRevenue: true })).status, 400);
+  const created = await owner.api(`/api/tasks/${task.id}/shares`, 'POST', { expiresInDays: 7, hideRevenue: true });
+  assert.equal(created.status, 201); assert.match(created.token, /^[A-Za-z0-9_-]{43}$/);
+  const result = await anon.api('/api/public/shares/read', 'POST', { token: created.token }); assert.equal(result.status, 200);
+  assert.equal(result.report.sample, true); assert.equal(result.report.sampleNotice, '本报告使用示例数据，不代表真实业务。');
+  assert.equal(result.headers['cache-control'], 'no-store'); assert.equal(result.headers['referrer-policy'], 'no-referrer');
+  const serialized = JSON.stringify(result.report); assert.doesNotMatch(serialized, /"revenue"|"payers"|pay_rate|arppu|arpdau|summary|findings|recommendations|records|user_id|apiKey|username/i);
+  const visitorToken = 'a'.repeat(43);
+  for (let i = 0; i < 2; i++) assert.equal((await anon.api('/api/public/shares/visit', 'POST', { token: created.token, visitorToken })).status, 200);
+  const newcomer = s.client(); assert.equal((await newcomer.api('/api/auth/register', 'POST', { username: 'share_newcomer', displayName: '新用户', password, shareToken: created.token, visitorToken })).status, 201);
+  const listed = await owner.api(`/api/tasks/${task.id}/shares`); assert.equal(listed.shares[0].views, 1); assert.equal(listed.shares[0].registrations, 1); assert.equal(JSON.stringify(listed).includes(created.token), false);
+  assert.equal((await other.api(`/api/shares/${created.share.id}`, 'DELETE')).status, 404);
+  assert.equal((await owner.api(`/api/shares/${created.share.id}`, 'DELETE')).status, 200);
+  assert.equal((await anon.api('/api/public/shares/read', 'POST', { token: created.token })).status, 404);
+  assert.equal((await anon.api('/api/public/shares/read', 'POST', { token: 'b'.repeat(43) })).error, (await anon.api('/api/public/shares/read', 'POST', { token: created.token })).error);
+  const late = s.client(); assert.equal((await late.api('/api/auth/register', 'POST', { username: 'share_late', displayName: '迟到', password, shareToken: created.token, visitorToken })).status, 201);
+  assert.equal((await owner.api(`/api/tasks/${task.id}/shares`)).shares[0].registrations, 1);
+  const db = new DatabaseSync(path.join(s.dir, 'accounts.sqlite')); try { assert.equal(JSON.stringify(db.prepare('SELECT * FROM shares').all()).includes(created.token), false); } finally { db.close(); }
+});
+
+test('sharing expires, remains a snapshot, limits attribution, and does not charge a wallet', async t => {
+  let time = Date.now(); const s = await setup(t, { now: () => time }); const owner = await s.register('share_expiry');
+  const boot = await owner.api('/api/bootstrap'); const task = boot.tasks.find(x => x.status === 'completed');
+  const wallet = (await owner.api('/api/wallet')).wallet;
+  const created = await owner.api(`/api/tasks/${task.id}/shares`, 'POST', { expiresInDays: 1, hideRevenue: false });
+  assert.equal(created.status, 201); const anon = s.client();
+  const initial = await anon.api('/api/public/shares/read', 'POST', { token: created.token }); assert.equal(initial.report.currency, 'CNY');
+  const db = new DatabaseSync(path.join(s.dir, 'accounts.sqlite'));
+  try { db.prepare('UPDATE shares SET snapshot=? WHERE id=?').run(JSON.stringify({ marker: 'fixed' }), created.share.id); } finally { db.close(); }
+  assert.equal((await anon.api('/api/public/shares/read', 'POST', { token: created.token })).report.marker, 'fixed');
+  assert.deepEqual((await owner.api('/api/wallet')).wallet, wallet);
+  time += 86400000;
+  assert.equal((await anon.api('/api/public/shares/read', 'POST', { token: created.token })).status, 404);
+  const late = s.client(); assert.equal((await late.api('/api/auth/register', 'POST', { username:'expiry_late', displayName:'迟到', password, shareToken:created.token, visitorToken:'a'.repeat(43) })).status, 201);
+  assert.equal((await owner.api(`/api/tasks/${task.id}/shares`)).shares[0].registrations, 0);
+});
 async function waitFor(c, id, status) {
   for (let i = 0; i < 200; i++) { const r = await c.api(`/api/tasks/${id}`); if (r.task?.status === status) return r; if (r.task?.status === 'failed') throw new Error(r.task.error); await new Promise(resolve => setTimeout(resolve, 10)); }
   throw new Error(`任务未达到 ${status}`);
@@ -58,7 +101,7 @@ async function files(dir) {
 test('cloud runtime, password hashing, opaque secure cookie and duplicate identity validation', async t => {
   const s = await setup(t, { production: true });
   const anon = s.client();
-  assert.deepEqual(await anon.api('/api/runtime'), { mode: 'cloud', authRequired: true, serviceName: 'DataAgent', version: '1.1.0', modelHosts: [], status: 200, setCookie: null });
+  assert.deepEqual(await anon.api('/api/runtime'), { mode: 'cloud', authRequired: true, serviceName: 'DataAgent', version: '1.1.0', modelHosts: ['api.deepseek.com', 'api.anthropic.com', 'api.openai.com'], capabilities: { taskEvents: true, taskRecovery: true, taskSkip: true, taskSummaries: true, idempotentTasks: true, walletVersion: true, reportExplore: true, reportMetadata: true, reportContinuation: true, reportSharing: true }, status: 200, setCookie: null });
   assert.equal((await anon.api('/api/bootstrap')).status, 401);
   assert.equal((await anon.api('/api/auth/session')).user, null);
   const r = await anon.api('/api/auth/register', 'POST', { username: 'Alice_01', displayName: '阿丽丝', password });
@@ -78,6 +121,37 @@ test('cloud runtime, password hashing, opaque secure cookie and duplicate identi
   } finally { db.close(); }
 });
 
+test('default whitelist permits the three official providers and rejects lookalike hosts', async t => {
+  const seen = [];
+  const s = await setup(t, { fetchImpl: async (url, init) => {
+    seen.push({ url, authorization: init.headers.authorization, apiKey: init.headers['x-api-key'] });
+    assert.equal(init.redirect, 'error');
+    return Response.json(url.includes('api.anthropic.com') ? { type: 'message', content: [{ type: 'text', text: 'OK' }], stop_reason: 'end_turn' } : { choices: [{ message: { content: 'OK' } }] });
+  } });
+  const a = await s.register('official_providers');
+  for (const baseUrl of ['https://api.deepseek.com', 'https://api.anthropic.com/v1', 'https://api.openai.com/v1']) {
+    assert.equal((await a.api('/api/settings', 'PUT', { baseUrl, model: 'account-model', apiKey: 'session-provider-key' })).status, 200);
+    assert.equal((await a.api('/api/settings/test', 'POST', {})).status, 200);
+  }
+  assert.deepEqual(seen.map(x => x.url), ['https://api.deepseek.com/chat/completions', 'https://api.anthropic.com/v1/messages', 'https://api.openai.com/v1/chat/completions']);
+  for (const baseUrl of ['https://api.openai.com.evil.test/v1', 'https://sub.api.deepseek.com/v1', 'https://api.anthropic.com:444/v1', 'http://api.openai.com/v1']) {
+    assert.equal((await a.api('/api/settings', 'PUT', { baseUrl, apiKey: 'must-not-send' })).status, 400);
+  }
+  assert.equal(seen.length, 3);
+  assert.ok(seen.every(x => x.url.includes('api.anthropic.com') ? x.apiKey === 'session-provider-key' && !x.authorization : x.authorization === 'Bearer session-provider-key'));
+});
+
+test('explicit environment whitelist replaces defaults and an empty value disables AI', async t => {
+  const previous = process.env.DATAAGENT_MODEL_HOSTS;
+  t.after(() => { if (previous === undefined) delete process.env.DATAAGENT_MODEL_HOSTS; else process.env.DATAAGENT_MODEL_HOSTS = previous; });
+  process.env.DATAAGENT_MODEL_HOSTS = 'trusted.example.test';
+  const custom = await setup(t);
+  assert.deepEqual((await custom.client().api('/api/runtime')).modelHosts, ['trusted.example.test']);
+  process.env.DATAAGENT_MODEL_HOSTS = '';
+  const disabled = await setup(t);
+  assert.deepEqual((await disabled.client().api('/api/runtime')).modelHosts, []);
+});
+
 test('A/B resources, task operations, reports and trial ledgers remain isolated', async t => {
   const s = await setup(t); const a = await s.register('alice'); const b = await s.register('bob');
   const ab = await a.api('/api/bootstrap'); const bb = await b.api('/api/bootstrap');
@@ -86,6 +160,10 @@ test('A/B resources, task operations, reports and trial ledgers remain isolated'
   const form = new FormData(); form.append('files', new Blob(['user_id,registered_at,channel\na,2026-10-01,自然\n']), 'users.csv');
   const uploaded = await a.api('/api/datasets/upload', 'POST', form); assert.equal(uploaded.status, 201, uploaded.error);
   const id = uploaded.dataset.id;
+  assert.equal(uploaded.dataset.inspection?.version, 1);
+  assert.equal(Object.hasOwn(uploaded.dataset, 'records'), false);
+  assert.equal((await b.api('/api/bootstrap')).datasets.some(dataset => dataset.id === id), false);
+  assert.deepEqual((await a.api(`/api/datasets/${id}`)).dataset.inspection, uploaded.dataset.inspection);
   assert.equal((await b.api(`/api/datasets/${id}`)).status, 404);
   assert.equal((await b.api(`/api/datasets/${id}`, 'DELETE')).status, 404);
   assert.equal((await b.api('/api/tasks', 'POST', taskBody(id))).status, 404);
@@ -208,6 +286,47 @@ test('running AI task keeps its original session snapshot after logout and anoth
   assert.equal(done.task.report.source, 'ai');
   assert.deepEqual(seen, [{ url: 'https://first.example.test/v1/chat/completions', model: 'first-model', authorization: 'Bearer first-session-snapshot' }]);
   for (const file of await files(s.dir)) { const contents = await readFile(file); assert.equal(contents.includes(Buffer.from('first-session-snapshot')), false); assert.equal(contents.includes(Buffer.from('second-session-snapshot')), false); }
+});
+
+test('model discovery is authenticated, checks hosts, isolates session keys and never saves draft settings', async t => {
+  const calls = [];
+  const s = await setup(t, { fetchImpl: async (url, init) => {
+    calls.push({ url, authorization: init.headers.authorization });
+    return Response.json({ data: [{ id: 'discovered-model', name: '真实目录模型' }] });
+  } });
+  assert.equal((await s.client().api('/api/settings/models', 'POST', { baseUrl: 'https://api.deepseek.com', apiKey: 'anon-key' })).status, 401);
+  const a = await s.register('catalog_user'); const b = s.client();
+  await b.api('/api/auth/login', 'POST', { username: 'catalog_user', password });
+  const before = (await a.api('/api/settings')).settings;
+  const draft = await a.api('/api/settings/models', 'POST', { baseUrl: 'https://api.deepseek.com/chat/completions', apiKey: 'temporary-catalog-secret' });
+  assert.equal(draft.status, 200, draft.error);
+  assert.deepEqual(draft.models, [{ id: 'discovered-model', name: '真实目录模型' }]);
+  assert.equal(draft.baseUrl, 'https://api.deepseek.com');
+  assert.deepEqual((await a.api('/api/settings')).settings, before);
+  await a.api('/api/settings', 'PUT', { baseUrl: 'https://api.deepseek.com', model: 'saved-model', apiKey: 'saved-session-key' });
+  assert.equal((await a.api('/api/settings/models', 'POST', { baseUrl: 'https://api.deepseek.com' })).status, 200);
+  assert.equal((await b.api('/api/settings/models', 'POST', { baseUrl: 'https://api.deepseek.com' })).status, 400);
+  assert.equal((await a.api('/api/settings/models', 'POST', { baseUrl: 'https://api.openai.com/v1' })).status, 400, '不能把原地址的会话 Key 自动发到新地址');
+  for (const baseUrl of ['https://api.deepseek.com.evil.test', 'http://127.0.0.1:9876', 'https://api.openai.com:444/v1']) {
+    assert.equal((await a.api('/api/settings/models', 'POST', { baseUrl, apiKey: 'denied-key' })).status, 400);
+  }
+  assert.equal((await a.api('/api/settings', 'PUT', { baseUrl: 'https://api.openai.com/v1' })).status, 400, '切换地址后保存也必须提供新 Key');
+  assert.deepEqual(calls, [
+    { url: 'https://api.deepseek.com/models', authorization: 'Bearer temporary-catalog-secret' },
+    { url: 'https://api.deepseek.com/models', authorization: 'Bearer saved-session-key' },
+  ]);
+  await b.api('/api/settings', 'PUT', { baseUrl: 'https://api.openai.com/v1', model: 'other-provider', apiKey: 'other-session-provider-key' });
+  assert.equal((await a.api('/api/settings/models', 'POST', { baseUrl: 'https://api.openai.com/v1' })).status, 400, '同账号另一会话切换供应商后不能转发旧 Key');
+  assert.equal(calls.length, 2);
+  for (const file of await files(s.dir)) assert.equal((await readFile(file)).includes(Buffer.from('temporary-catalog-secret')), false);
+});
+
+test('provider authentication errors during discovery do not log the user out', async t => {
+  const s = await setup(t, { fetchImpl: async () => Response.json({ error: { message: 'do-not-echo-key' } }, { status: 401 }) });
+  const a = await s.register('catalog_error');
+  const result = await a.api('/api/settings/models', 'POST', { baseUrl: 'https://api.deepseek.com', apiKey: 'do-not-echo-key' });
+  assert.equal(result.status, 400); assert.match(result.error, /Key|凭据/); assert.equal(result.error.includes('do-not-echo-key'), false);
+  assert.equal((await a.api('/api/auth/session')).user.id, a.user.id);
 });
 
 test('empty model whitelist denies all AI calls while deterministic analysis remains available', async t => {

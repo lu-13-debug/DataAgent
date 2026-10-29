@@ -10,6 +10,15 @@ export const yesterday = (now = new Date()) => shiftDate(dateOf(now), -1);
 export const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
 const pct = (n, d) => d ? round(100 * n / d) : null;
 
+export function analysisRange(range) {
+  const valid = value => typeof value === 'string' && /^[1-9]\d{3}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  if (!range || !valid(range.start) || !valid(range.end)) throw new Error('日期须为合法的 YYYY-MM-DD 自然日');
+  if (range.start > range.end) throw new Error('开始日期不能晚于结束日期');
+  const length = Math.floor((Date.parse(range.end) - Date.parse(range.start)) / DAY) + 1;
+  if (length > 3660) throw new Error('分析范围不能超过十年（3660 天）');
+  return { start: range.start, end: range.end, length };
+}
+
 export function timestamp(value, label = '时间') {
   let raw = value instanceof Date ? value.toISOString() : String(value ?? '').trim();
   if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(raw)) raw = raw.replaceAll('/', '-');
@@ -81,18 +90,27 @@ export function analyze(dataset, options = {}) {
   const now = options.now || new Date();
   const { records: r, warnings } = normalizeRecords(dataset.records || {}, dataset.warnings || []);
   const has = type => Object.hasOwn(r, type);
-  const users = r.users || [], activity = r.activity || [], payments = r.payments || [];
+  const scoped = options.range !== undefined || options.channels !== undefined;
+  const requested = options.range === undefined ? null : analysisRange(options.range);
+  if (options.channels !== undefined && (!Array.isArray(options.channels) || options.channels.length > 50 || options.channels.some(name => typeof name !== 'string' || !name.trim() || name.length > 100))) throw new Error('渠道须为最多 50 项、每项 1–100 字的文本数组');
+  const selectedChannels = new Set(options.channels || []);
+  if (selectedChannels.size && !has('users')) throw new Error('缺少注册表，无法按注册渠道筛选');
+  const sourceUsers = r.users || [];
+  const userMap = new Map(sourceUsers.map(u => [u.user_id, u]));
+  const selected = row => !selectedChannels.size || selectedChannels.has(userMap.get(row.user_id)?.channel);
+  const users = sourceUsers.filter(selected), activity = (r.activity || []).filter(selected), payments = (r.payments || []).filter(selected);
   const issues = [...warnings];
   for (const [type, label] of [['users', '注册'], ['activity', '活跃'], ['payments', '支付']]) if (!has(type)) issues.push(`缺少${label}表，相关指标显示无数据`);
   const cutoff = yesterday(now);
-  const allDates = [...users.map(x => dateOf(x.registered_at)), ...activity.map(x => dateOf(x.event_time)), ...payments.map(x => dateOf(x.paid_at))].sort();
+  if (requested && requested.end > cutoff) throw new Error('仅可探索原报告生成时已结束的完整自然日');
+  const allDates = [...sourceUsers.map(x => dateOf(x.registered_at)), ...(r.activity || []).map(x => dateOf(x.event_time)), ...(r.payments || []).map(x => dateOf(x.paid_at))].sort();
   if (!allDates.length) throw new Error('数据集中没有可分析的数据行');
-  const start = allDates[0];
-  const end = allDates.at(-1) > cutoff ? cutoff : allDates.at(-1);
+  const start = requested?.start || allDates[0];
+  const end = requested?.end || (allDates.at(-1) > cutoff ? cutoff : allDates.at(-1));
   if (start > end) throw new Error('数据仅包含当日或未来日期，尚无完整自然日可分析');
   const length = Math.floor((Date.parse(end) - Date.parse(start)) / DAY) + 1;
   if (length > 3660) throw new Error('数据时间跨度超过十年，请缩小分析范围');
-  if (allDates.some(d => d > end)) issues.push(`已排除 ${shiftDate(end, 1)} 起的当日或未来记录，避免使用不完整自然日`);
+  if (allDates.some(d => d > cutoff)) issues.push(`已排除 ${shiftDate(cutoff, 1)} 起的当日或未来记录，避免使用不完整自然日`);
   const labels = { users: '注册表', activity: '活跃表', payments: '支付表' };
   const timeFields = { users: 'registered_at', activity: 'event_time', payments: 'paid_at' };
   const coverage = {};
@@ -109,12 +127,11 @@ export function analyze(dataset, options = {}) {
   }
   const active = new Map(), registered = new Map(), paid = new Map(), revenue = new Map();
   const addSet = (map, key, id) => { if (!map.has(key)) map.set(key, new Set()); map.get(key).add(id); };
-  for (const row of activity) { const date = dateOf(row.event_time); if (date <= end) addSet(active, date, row.user_id); }
+  for (const row of activity) { const date = dateOf(row.event_time); if (date <= (scoped ? cutoff : end)) addSet(active, date, row.user_id); }
   const activityCovered = date => covered('activity', date);
-  const userMap = new Map(users.map(u => [u.user_id, u]));
-  for (const row of users) { const date = dateOf(row.registered_at); if (date <= end) addSet(registered, date, row.user_id); }
+  for (const row of users) { const date = dateOf(row.registered_at); if (date <= end && (!scoped || date >= start)) addSet(registered, date, row.user_id); }
   const successful = new Set(['success', 'paid', 'completed', 'succeeded', '成功', '支付成功', '已支付', '1']);
-  const success = payments.filter(p => successful.has(p.status) && dateOf(p.paid_at) <= end);
+  const success = payments.filter(p => successful.has(p.status) && dateOf(p.paid_at) <= end && (!scoped || dateOf(p.paid_at) >= start));
   const excluded = payments.filter(p => !successful.has(p.status)).length;
   if (excluded) issues.push(`${excluded} 笔非成功状态订单未计入支付指标`);
   for (const row of success) {
@@ -124,6 +141,7 @@ export function analyze(dataset, options = {}) {
   }
   const unknown = new Set([...activity, ...payments].map(x => x.user_id).filter(id => !userMap.has(id)));
   if (has('users') && unknown.size) issues.push(`${unknown.size} 位活动或支付用户未匹配注册表；不将窗口首见视为注册`);
+  if (scoped && (activity.some(row => userMap.has(row.user_id) && row.event_time < userMap.get(row.user_id).registered_at) || payments.some(row => userMap.has(row.user_id) && row.paid_at < userMap.get(row.user_id).registered_at))) issues.push('存在活跃或支付时间早于源注册时间的记录；渠道仅依据源注册表标识映射，异常时间顺序不能用于推断生命周期。');
   const daily = Array.from({ length }, (_, i) => {
     const date = shiftDate(start, i);
     return { date, dau: covered('activity', date) ? active.get(date)?.size || 0 : null, newUsers: covered('users', date) ? registered.get(date)?.size || 0 : null, revenue: covered('payments', date) ? (revenue.get(date) || 0) / 100 : null, payers: covered('payments', date) ? paid.get(date)?.size || 0 : null };
@@ -144,7 +162,7 @@ export function analyze(dataset, options = {}) {
   const totalCents = [...revenue.values()].reduce((n, v) => n + v, 0);
   if (!Number.isSafeInteger(totalCents)) throw new Error('支付总额超出可安全计算范围');
   const payerIds = new Set(success.map(p => p.user_id));
-  const activeEnd = coverage.activity?.end || null;
+  const activeEnd = scoped ? (coverage.activity && coverage.activity.start <= end && coverage.activity.end >= start ? (coverage.activity.end < end ? coverage.activity.end : end) : null) : coverage.activity?.end || null;
   const last = daily.find(day => day.date === activeEnd) || { dau: null };
   const previous = activeEnd ? daily.find(day => day.date === shiftDate(activeEnd, -1)) : undefined;
   const lastActive = active.get(activeEnd) || new Set(), lastPaid = paid.get(activeEnd) || new Set();
@@ -152,31 +170,60 @@ export function analyze(dataset, options = {}) {
   const activeDayNote = activeEnd ? `${activeEnd} 最后完整活跃覆盖自然日` : '没有完整活跃覆盖自然日';
   const sameDayPaymentNote = activeEnd && !sameDayPaymentCoverage ? '；该日不在支付表覆盖范围内，显示无数据' : '';
   const change = (value, prev) => value === null || !prev ? null : round((value - prev) * 100 / prev);
-  const currency = payments[0]?.currency || 'CNY';
+  const currency = r.payments?.[0]?.currency || 'CNY';
   const currencyUnit = currency === 'CNY' ? '元' : currency;
-  const registeredPeriod = coverage.users ? `${coverage.users.start} 至 ${coverage.users.end}` : '没有完整注册覆盖自然日';
-  const paymentPeriod = coverage.payments ? `${coverage.payments.start} 至 ${coverage.payments.end}` : '没有完整支付覆盖自然日';
+  const overlaps = type => Boolean(coverage[type] && coverage[type].start <= end && coverage[type].end >= start);
+  const registeredPeriod = coverage.users ? (scoped ? `${start} 至 ${end} 筛选期，受原注册表覆盖限制` : `${coverage.users.start} 至 ${coverage.users.end}`) : '没有完整注册覆盖自然日';
+  const paymentPeriod = coverage.payments ? (scoped ? `${start} 至 ${end} 筛选期，受原支付表覆盖限制` : `${coverage.payments.start} 至 ${coverage.payments.end}`) : '没有完整支付覆盖自然日';
   const metric = (id, label, value, unit, note, delta = null) => ({ id, label, value, unit, change: delta, note });
   const metrics = [
-    metric('dau', '日活跃用户', last.dau, '人', `${activeDayNote}；按 user_id 去重`, change(last.dau, previous?.dau)),
-    metric('new_users', '新增注册用户', coverage.users ? users.filter(u => dateOf(u.registered_at) <= end).length : null, '人', `${registeredPeriod}；以注册表为准`),
+    metric('dau', '日活跃用户', last.dau, '人', `${activeDayNote}；按 user_id 去重`, scoped ? null : change(last.dau, previous?.dau)),
+    metric('new_users', '新增注册用户', overlaps('users') ? users.filter(u => dateOf(u.registered_at) <= end && (!scoped || dateOf(u.registered_at) >= start)).length : null, '人', `${registeredPeriod}；以注册表为准`),
     metric('d1_retention', '次日留存率', has('users') && has('activity') ? weightedRetention(retention, 'd1') : null, '%', '按注册人数加权，仅包含 D1 已成熟 cohort；第 1 天当日回访'),
     metric('d7_retention', '7日留存率', has('users') && has('activity') ? weightedRetention(retention, 'd7') : null, '%', '按注册人数加权，仅包含 D7 已成熟 cohort；第 7 天当日回访'),
-    metric('revenue', '成功支付收入', coverage.payments ? totalCents / 100 : null, currencyUnit, `${paymentPeriod}；成功订单按 order_id 去重；金额以整数分计算`),
-    metric('arppu', '付费用户平均收入', coverage.payments ? (payerIds.size ? round(totalCents / 100 / payerIds.size) : null) : null, currencyUnit, `${paymentPeriod}；成功支付总额 / 去重付费人数`),
+    metric('revenue', '成功支付收入', overlaps('payments') ? totalCents / 100 : null, currencyUnit, `${paymentPeriod}；成功订单按 order_id 去重；金额以整数分计算`),
+    metric('arppu', '付费用户平均收入', overlaps('payments') ? (payerIds.size ? round(totalCents / 100 / payerIds.size) : null) : null, currencyUnit, `${paymentPeriod}；成功支付总额 / 去重付费人数`),
     metric('pay_rate', '活跃付费率', activeEnd && sameDayPaymentCoverage ? pct([...lastActive].filter(id => lastPaid.has(id)).length, lastActive.size) : null, '%', `${activeDayNote}；活跃且支付用户 / DAU${sameDayPaymentNote}`),
     metric('arpdau', '日活跃用户平均收入', activeEnd && sameDayPaymentCoverage && lastActive.size ? round((revenue.get(activeEnd) || 0) / 100 / lastActive.size) : null, currencyUnit, `${activeDayNote}；当日成功支付总额 / DAU${sameDayPaymentNote}`),
   ];
-  const channelNames = [...new Set(users.filter(u => dateOf(u.registered_at) <= end).map(u => u.channel))];
-  const channels = channelNames.map(name => {
-    const ids = new Set(users.filter(u => u.channel === name && dateOf(u.registered_at) <= end).map(u => u.user_id));
-    const channelCohorts = [...registered].map(([date, cohort]) => {
-      const members = [...cohort].filter(id => ids.has(id));
-      const returned = active.get(shiftDate(date, 1)) || new Set();
-      return { users: members.length, d1: has('activity') && activityCovered(shiftDate(date, 1)) ? pct(members.filter(id => returned.has(id)).length, members.length) : null };
+  let channels;
+  if (scoped) {
+    // Build each identity/channel/cohort once. Full registration mapping can include many
+    // future-only channels, so rescanning all users or orders for every channel is unbounded.
+    const groups = new Map(), returnDays = new Map();
+    const userCoverage = overlaps('users'), paymentCoverage = overlaps('payments');
+    for (const date of registered.keys()) {
+      const next = shiftDate(date, 1);
+      returnDays.set(date, { covered: has('activity') && activityCovered(next), returned: active.get(next) || new Set() });
+    }
+    for (const user of users) {
+      if (!groups.has(user.channel)) groups.set(user.channel, { name: user.channel, users: userCoverage ? 0 : null, cents: 0, cohorts: new Map() });
+      const group = groups.get(user.channel), date = dateOf(user.registered_at);
+      if (date < start || date > end) continue;
+      if (group.users !== null) group.users++;
+      if (!group.cohorts.has(date)) group.cohorts.set(date, { users: 0, returned: 0 });
+      const cohort = group.cohorts.get(date); cohort.users++;
+      if (returnDays.get(date)?.returned.has(user.user_id)) cohort.returned++;
+    }
+    for (const payment of success) {
+      const group = groups.get(userMap.get(payment.user_id)?.channel);
+      if (group) group.cents += moneyCents(payment.amount);
+    }
+    channels = [...groups.values()].map(group => ({ name: group.name, users: group.users, revenue: paymentCoverage ? group.cents / 100 : null,
+      d1: weightedRetention([...group.cohorts].map(([date, cohort]) => ({ users: cohort.users, d1: returnDays.get(date)?.covered ? pct(cohort.returned, cohort.users) : null })), 'd1') }));
+  } else {
+    const channelNames = [...new Set(users.filter(u => dateOf(u.registered_at) <= end).map(u => u.channel))];
+    channels = channelNames.map(name => {
+      const ids = new Set(users.filter(u => u.channel === name && dateOf(u.registered_at) <= end).map(u => u.user_id));
+      const channelCohorts = [...registered].map(([date, cohort]) => {
+        const members = [...cohort].filter(id => ids.has(id));
+        const returned = active.get(shiftDate(date, 1)) || new Set();
+        return { users: members.length, d1: has('activity') && activityCovered(shiftDate(date, 1)) ? pct(members.filter(id => returned.has(id)).length, members.length) : null };
+      });
+      return { name, users: ids.size, revenue: coverage.payments ? success.filter(p => ids.has(p.user_id)).reduce((n, p) => n + moneyCents(p.amount), 0) / 100 : null, d1: weightedRetention(channelCohorts, 'd1') };
     });
-    return { name, users: ids.size, revenue: coverage.payments ? success.filter(p => ids.has(p.user_id)).reduce((n, p) => n + moneyCents(p.amount), 0) / 100 : null, d1: weightedRetention(channelCohorts, 'd1') };
-  }).sort((a, b) => b.users - a.users);
+  }
+  channels.sort((a, b) => a.users === null ? (b.users === null ? 0 : 1) : b.users === null ? -1 : b.users - a.users);
   const totalRows = Object.values(dataset.records || {}).reduce((n, rows) => n + rows.length, 0);
   const demo = dataset.source === 'demo' ? '本报告使用确定性生成的示例数据，不代表真实业务。' : '';
   const goal = options.goal || '了解活跃、留存和商业化表现';
@@ -184,7 +231,7 @@ export function analyze(dataset, options = {}) {
   const findings = [
     { title: '完整自然日活跃', detail: last.dau === null ? '缺少完整自然日活跃覆盖，无法判断活跃表现。' : `${activeEnd} 共有 ${last.dau} 位活跃用户，重复事件已去重。`, severity: 'neutral', evidence: last.dau === null ? '没有完整活跃覆盖日' : `${activeEnd} DAU = ${last.dau}` },
     { title: '留存观察', detail: metrics[2].value === null ? '尚无可用的成熟注册 cohort，不能推断留存。' : `成熟 cohort 的加权次日留存率为 ${metrics[2].value}%，应结合渠道与样本量判断。`, severity: metrics[2].value !== null && metrics[2].value < 30 ? 'warning' : 'neutral', evidence: `成熟 cohort ${retention.filter(c => c.d1 !== null).length} 组` },
-    { title: '商业化口径', detail: coverage.payments ? `${paymentPeriod} 成功支付收入 ${totalCents / 100} ${currency}，去重付费人数 ${payerIds.size}。` : '未提供完整支付覆盖，商业化指标无数据。', severity: 'neutral', evidence: coverage.payments ? `${success.length} 笔成功订单；以整数分累加` : '没有完整支付覆盖日' },
+    { title: '商业化口径', detail: overlaps('payments') ? `${paymentPeriod} 成功支付收入 ${totalCents / 100} ${currency}，去重付费人数 ${payerIds.size}。` : (scoped ? '未提供所选期间的支付覆盖，商业化指标无数据。' : '未提供完整支付覆盖，商业化指标无数据。'), severity: 'neutral', evidence: overlaps('payments') ? `${success.length} 笔成功订单；以整数分累加` : '没有完整支付覆盖日' },
   ];
   if (issues.length) findings.push({ title: '数据质量提示', detail: issues.join('；'), severity: 'warning', evidence: `${issues.length} 项质量提示` });
   const recommendations = [
@@ -195,17 +242,19 @@ export function analyze(dataset, options = {}) {
   return {
     title: options.title ? `${options.title} · 运营分析报告` : `${dataset.name} · 运营分析报告`,
     period: `${start} 至 ${end}`, generatedAt: new Date(now).toISOString(), currency,
-    summary: `${demo}围绕“${goal}”分析 ${start} 至 ${end} 的 ${totalRows} 行记录。${last.dau === null ? '活跃指标无数据' : `${activeEnd} 最后完整活跃覆盖日 DAU 为 ${last.dau}`}；${coverage.payments ? `${paymentPeriod} 成功支付收入为 ${totalCents / 100} ${currency}` : '支付指标无数据'}。${context ? `已纳入追加背景：${context}。` : ''}`,
+    summary: `${demo}围绕“${goal}”分析 ${start} 至 ${end} 的 ${totalRows} 行记录。${last.dau === null ? '活跃指标无数据' : `${activeEnd} 最后完整活跃覆盖日 DAU 为 ${last.dau}`}；${overlaps('payments') ? `${paymentPeriod} 成功支付收入为 ${totalCents / 100} ${currency}` : '支付指标无数据'}。${context ? `已纳入追加背景：${context}。` : ''}`,
     findings, recommendations, metrics, daily, retention, channels,
     quality: { rows: totalRows, issues: [...new Set(issues)], score: Math.max(0, 100 - issues.length * 5) },
     methodology: [
       '项目时区为 Asia/Shanghai（UTC+8）；无时区输入按此解释；仅使用完整自然日，排除当日和未来记录。历史文件末日视为其声明的数据覆盖末日，若该日导出不完整须重新上传。',
       'DAU 为当日活跃 user_id 去重数；新增以 users.registered_at 为准，活动窗口首见不作为注册或生命周期起点。',
-      '图表保留三表日期并集；每张表分别以自身最早记录至最后完整覆盖日作为覆盖范围。范围外显示无数据，范围内的无事件日才记为零；跨表范围不一致会给出质量提示。',
+      `${scoped ? '图表保留所选区间内全部自然日' : '图表保留三表日期并集'}；每张表分别以完整原记录的最早日期至最后完整覆盖日作为覆盖范围。范围外显示无数据，范围内的无事件日才记为零；跨表范围不一致会给出质量提示。`,
       'D1 / D7 为注册日 cohort 在第 1 / 7 个自然日当天回访的比例；目标日必须落在活跃表覆盖范围内且不晚于完整自然日，按成熟 cohort 人数加权；窗口不成熟、覆盖不足或缺少表时显示无数据。',
       '支付仅统计成功状态，按 order_id 去重；金额以整数分累加，不混合币种。非 CNY 金额保留原币种，不自动换汇。',
-      'DAU、活跃付费率和 ARPDAU 使用最后完整活跃覆盖自然日；付费率为该日活跃与支付用户交集 / DAU，ARPDAU 为该日成功支付总额 / DAU。支付表不覆盖该日时两者均无数据；ARPPU 为支付覆盖全期间成功支付额 / 去重付费人数；无分母显示无数据。',
+      `DAU、活跃付费率和 ARPDAU 使用${scoped ? '所选范围内的' : ''}最后完整活跃覆盖自然日；付费率为该日活跃与支付用户交集 / DAU，ARPDAU 为该日成功支付总额 / DAU。支付表不覆盖该日时两者均无数据；ARPPU 为${scoped ? '所选期间' : '支付覆盖全期间'}成功支付额 / 去重付费人数；无分母显示无数据。`,
       '渠道来自注册表；未匹配注册表的支付不会归属已知渠道。报告为观察性分析，不能直接推断因果。',
+      ...(scoped ? [`本报告为确定性筛选派生结果：${start} 至 ${end}；${selectedChannels.size ? `注册渠道 ${[...selectedChannels].join('、')}` : '全部注册渠道（未匹配玩家仅计入全量事件）'}。每张表覆盖先由完整原记录计算，再筛选；渠道收入使用该渠道全部已注册玩家的期间订单，新增和留存仅使用期间注册 cohort，D1/D7 可读取期间之外的完整日回访。原报告 AI 叙述与日环比不沿用。`] : []),
+      ...(scoped ? ['渠道名单、事件筛选和渠道收入统一依据完整源注册表的玩家标识映射，即使事件时间早于记录的注册时间也保留已匹配归因；新增仍只计期间注册。此映射不证明时间顺序有效，异常顺序不能用于推断玩家生命周期或注册前行为。'] : []),
     ], source: 'local',
   };
 }
